@@ -207,6 +207,9 @@ marimo/_lsp/
 __marimo__/
 
 # Data Files
-Chopin_Mazurkas/
+Chopin_Mazurkas
 features/
 scenarios/
+experiments/
+eval/
+eval_tsm/
