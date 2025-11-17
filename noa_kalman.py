@@ -121,7 +121,7 @@ def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshap
     return path
 
 class NOAKalman:
-    def __init__(self, F, B, H, Q, R, x0, P0, F2, hop_sec = 512 / 22050, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0):
+    def __init__(self, F, B, H, Q, R, x0, P0, F2, hop_sec = 512 / 22050, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0, max_timewarp_factor = 3):
         """
         Initialize the NOAKalman class
         Inputs:
@@ -138,12 +138,14 @@ class NOAKalman:
             weights: weights for the DTW algorithm
             cost_metric: cost metric for the DTW algorithm
             ref_start_time: time of the first frame of the reference to align to
+            max_timewarp_factor: maximum time warp factor
         """
         # initialize kalman filter
         self.kalman_filter = KalmanFilter(F, B, H, Q, R, x0, P0)
         
         # initalize NOA function call info
         self.path = [[0,0]]
+        self.velocity_history = []
         self.F2 = F2[:, int(ref_start_time / hop_sec):]
         self.ref_length = self.F2.shape[1]
         self.hop_sec = hop_sec
@@ -151,6 +153,7 @@ class NOAKalman:
         self.steps = steps
         self.weights = weights
         self.cost_metric = cost_metric
+        self.max_timewarp_factor = max_timewarp_factor
         
         # initalize NOA stored info
         self.max_query_length = 2 * self.ref_length
@@ -186,13 +189,18 @@ class NOAKalman:
             x: updated state vector from Kalman filter
         """
         # Convert best_j to measurement vector format (1D array)
-        z = np.array([best_j])
+        z = np.array([1])
         self.kalman_filter.update(z)
         
         predicted_j = self.kalman_filter.x[0]
         # clamp predicted_j to be between last predicted_j and self.ref_length - 1
-        predicted_j = max(self.path[-1][1], min(predicted_j, self.ref_length - 1))
+        # predicted_j = max(self.path[-1][1], min(predicted_j, self.ref_length - 1))
         self.path.append([self.i, predicted_j])
+        
+        # clamp velocity to between 1/3 and 3
+        predicted_velocity = max(1/self.max_timewarp_factor, min(self.kalman_filter.x[1], self.max_timewarp_factor))
+        self.kalman_filter.x[1] = predicted_velocity
+        self.velocity_history.append(predicted_velocity)
     
     def align(self, F1):
         """
@@ -205,7 +213,7 @@ class NOAKalman:
         for i in range(1, F1.shape[1]):
             self.i = i
             # Predict step: predict the next state before getting the measurement
-            u = np.zeros(1)  # No control input since we have no acceleration
+            u = np.zeroes(1)  # No control input since we have no acceleration
             self.kalman_filter.predict(u)
             
             # Get measurement from NOA alignment
@@ -262,4 +270,4 @@ def alignNOAKalman(F1, F2,
     path = noa_kalman.get_path()
     if outfile:
         pickle.dump(path, open(outfile, 'wb'))
-    return path
+    return noa_kalman
