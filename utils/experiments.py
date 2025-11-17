@@ -9,6 +9,7 @@ import vamp
 import pandas as pd
 
 from noa import alignNOA
+from utils.oltw import online_processing
 
 @jit(nopython=True, parallel=True)
 def cosine_dist(F1, F2):
@@ -74,6 +75,8 @@ class ExperimentRunner:
             self.run_noa(scenarios_dir, out_path)
         elif self.exp_type == "MATCH":
             self.run_match(scenarios_dir, out_path)
+        elif self.exp_type == "OLTW":
+            self.run_oltw(scenarios_dir, out_path)
         else:
             raise ValueError(f"Invalid experiment type: {self.exp_type}")
             
@@ -161,3 +164,6 @@ class ExperimentRunner:
         # store result
         wp= parse_match_outfile(match_align_filepath)
         np.save(os.path.join(out_path, "hyp.npy"), wp)
+        
+    def run_oltw(self, scenarios_dir, out_path):
+        online_processing(scenarios_dir, out_path, self.kwargs['hop_length'])
