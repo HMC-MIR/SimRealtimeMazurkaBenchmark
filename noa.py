@@ -3,7 +3,6 @@ import pickle
 from tqdm import tqdm
 from pathlib import Path
 from numba import jit, njit
-# from baselineDTW import compute_match_distance_frame_to_feature_matrix
 
 @njit(cache=True)
 def compute_cosine_distance(feature_row, reference_features):
@@ -20,50 +19,6 @@ def compute_cosine_distance(feature_row, reference_features):
         costs[j] = 1.0 - dot_product
 
     return costs
-
-@njit(cache=True)
-def update_alignment_row_numba(i, costs, D, B, dn, dm, dw, ref_length):
-    """
-    Update alignment row using numba for optimized performance.
-
-    Args:
-        i (int): Current row index in the alignment matrix.
-        costs (np.ndarray): Cost vector for the current feature row.
-        D (np.ndarray): Alignment cost matrix.
-        B (np.ndarray): Backtrace matrix.
-        dn (np.ndarray): Row step sizes.
-        dm (np.ndarray): Column step sizes.
-        dw (np.ndarray): Weights for each step.
-        ref_length (int): Length of the reference features.
-    """
-    best_j = 0
-    best_cost = np.inf
-
-    for j in range(min(costs.shape[0], ref_length)):
-        best_step_cost = np.inf
-        best_step = -1
-
-        for k, (di, dj, w) in enumerate(zip(dn, dm, dw)):
-            prev_i, prev_j = i - di, j - dj
-
-            if prev_i < 0 or prev_j < 0 or prev_j >= ref_length:
-                continue
-
-            cur_cost = D[prev_i, prev_j] + costs[j] * w
-
-            if cur_cost < best_step_cost:
-                best_step_cost = cur_cost
-                best_step = k
-
-        if best_step != -1:
-            D[i, j] = best_step_cost
-            B[i, j] = best_step
-
-            if best_step_cost < best_cost:
-                best_cost = best_step_cost
-                best_j = j
-
-    return best_j
 
 @njit(cache=True)
 def update_alignment_row_numba_norm(i, costs, D, B, dn, dm, dw, ref_length):
@@ -112,7 +67,7 @@ def update_alignment_row_numba_norm(i, costs, D, B, dn, dm, dw, ref_length):
 
     return best_j
 
-def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0):
+def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0, return_D = False):
     '''
     Align two feature matrices using NOA
     Inputs:
@@ -122,6 +77,7 @@ def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshap
         steps: step sizes for the DTW algorithm
         weights: weights for the DTW algorithm
         ref_start_time: time of the first frame of the reference to align to
+        return_D: whether to return the cost matrix D
     Outputs:
         path: warping path of shape (2, n_frames) where the first row is the indices of F1 and the second row is the indices of F2
     '''
@@ -161,58 +117,55 @@ def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshap
     
     if outfile:
         pickle.dump(path, open(outfile, 'wb'))
+        
+    if return_D:
+        return path, D
+    else:
+        return path
 
-    return path
+@njit(cache=True)
+def update_alignment_row_numba(i, costs, D, B, dn, dm, dw, ref_length):
+    """
+    Update alignment row using numba for optimized performance.
 
-def alignNOA_batch(train_file, chroma_dir, outdir, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance):
-    '''
-    Aligns two directories of chroma features using DTW
-    Inputs:
-        train_file: path to the pickle file containing the list of file pairs
-        chroma_dir: path to the directory containing the chroma features
-        outdir: path to the output directory
-        steps: step sizes for the DTW algorithm
-        weights: weights for the DTW algorithm
-    '''
-    
-    with open(train_file, 'rb') as f:
-        file_pairs = pickle.load(f)
+    Args:
+        i (int): Current row index in the alignment matrix.
+        costs (np.ndarray): Cost vector for the current feature row.
+        D (np.ndarray): Alignment cost matrix.
+        B (np.ndarray): Backtrace matrix.
+        dn (np.ndarray): Row step sizes.
+        dm (np.ndarray): Column step sizes.
+        dw (np.ndarray): Weights for each step.
+        ref_length (int): Length of the reference features.
+    """
+    best_j = 0
+    best_cost = np.inf
 
-    for counter, pair in tqdm(enumerate(file_pairs), desc = 'Aligning NOA', total=len(file_pairs)):
-        try:
-            queryid = f"{file_pairs[counter][0]}__{file_pairs[counter][1]}"
-            
-            # check if queryid is too long, if so, make it shorter
-            if len(queryid) > 255:
-                queryid = f"{file_pairs[counter][0][:50] + file_pairs[counter][0][-50:]}__{file_pairs[counter][0][:50] + file_pairs[counter][1][-50:]}"
+    for j in range(min(costs.shape[0], ref_length)):
+        best_step_cost = np.inf
+        best_step = -1
 
-            outfile = (outdir / queryid).with_suffix('.pkl')
-            
-            # check if file already exists
-            if outfile.exists():
-                print(f"File {outfile} already exists, skipping...")
-                continue
-            
-            file1 = Path(pair[0])
-            file2 = Path(pair[1])
+        for k, (di, dj, w) in enumerate(zip(dn, dm, dw)):
+            prev_i, prev_j = i - di, j - dj
 
-            chroma_path_1 = str(chroma_dir) + '/' + str(file1) + '.pkl'
-            chroma_path_2 = str(chroma_dir) + '/' + str(file2) + '.pkl'
-
-            F1 = pickle.load(open(chroma_path_1, 'rb'))
-            F2 = pickle.load(open(chroma_path_2, 'rb'))
-            
-            # dtw cannot handle files that are too long because they max out the RAM
-            threshold = 50 * 60 * 22050 / 512
-            if F1.shape[1] > threshold or F2.shape[1] > threshold:
-                print(f"Skipping {file1} and {file2} because they are too long...")
+            if prev_i < 0 or prev_j < 0 or prev_j >= ref_length:
                 continue
 
-            path = alignNOA(F1, F2, outfile = outfile, steps = steps, weights = weights, cost_metric = cost_metric)
-            
-        except Exception as e:
-            print(f"Error in {file1}, {file2}: {e}")
-            pass
+            cur_cost = D[prev_i, prev_j] + costs[j] * w
+
+            if cur_cost < best_step_cost:
+                best_step_cost = cur_cost
+                best_step = k
+
+        if best_step != -1:
+            D[i, j] = best_step_cost
+            B[i, j] = best_step
+
+            if best_step_cost < best_cost:
+                best_cost = best_step_cost
+                best_j = j
+
+    return best_j
         
 def alignNOA_no_norm(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance):
     '''
@@ -255,53 +208,3 @@ def alignNOA_no_norm(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]
         pickle.dump(path, open(outfile, 'wb'))
 
     return path
-
-def alignNOA_no_norm_batch(train_file, chroma_dir, outdir, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance):
-    '''
-    Aligns two directories of chroma features using DTW
-    Inputs:
-        train_file: path to the pickle file containing the list of file pairs
-        chroma_dir: path to the directory containing the chroma features
-        outdir: path to the output directory
-        steps: step sizes for the DTW algorithm
-        weights: weights for the DTW algorithm
-    '''
-    
-    with open(train_file, 'rb') as f:
-        file_pairs = pickle.load(f)
-
-    for counter, pair in tqdm(enumerate(file_pairs), desc = 'Aligning NOA (no norm)', total=len(file_pairs)):
-        try:
-            queryid = f"{file_pairs[counter][0]}__{file_pairs[counter][1]}"
-            
-            # check if queryid is too long, if so, make it shorter
-            if len(queryid) > 255:
-                queryid = f"{file_pairs[counter][0][:50] + file_pairs[counter][0][-50:]}__{file_pairs[counter][0][:50] + file_pairs[counter][1][-50:]}"
-
-            outfile = (outdir / queryid).with_suffix('.pkl')
-            
-            # check if file already exists
-            if outfile.exists():
-                print(f"File {outfile} already exists, skipping...")
-                continue
-            
-            file1 = Path(pair[0])
-            file2 = Path(pair[1])
-
-            chroma_path_1 = str(chroma_dir) + '/' + str(file1) + '.pkl'
-            chroma_path_2 = str(chroma_dir) + '/' + str(file2) + '.pkl'
-
-            F1 = pickle.load(open(chroma_path_1, 'rb'))
-            F2 = pickle.load(open(chroma_path_2, 'rb'))
-            
-            # dtw cannot handle files that are too long because they max out the RAM
-            threshold = 50 * 60 * 22050 / 512
-            if F1.shape[1] > threshold or F2.shape[1] > threshold:
-                print(f"Skipping {file1} and {file2} because they are too long...")
-                continue
-
-            path = alignNOA_no_norm(F1, F2, outfile = outfile, steps = steps, weights = weights, cost_metric = cost_metric)
-            
-        except Exception as e:
-            print(f"Error in {file1}, {file2}: {e}")
-            pass

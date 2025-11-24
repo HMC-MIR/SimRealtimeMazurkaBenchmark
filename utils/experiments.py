@@ -8,8 +8,9 @@ from tqdm import tqdm
 import vamp
 import pandas as pd
 
-from noa import alignNOA
+from noa import alignNOA, alignNOA_no_norm
 from utils.oltw import online_processing
+from noa_kalman import alignNOAKalman
 
 @jit(nopython=True, parallel=True)
 def cosine_dist(F1, F2):
@@ -77,6 +78,8 @@ class ExperimentRunner:
             self.run_match(scenarios_dir, out_path)
         elif self.exp_type == "OLTW":
             self.run_oltw(scenarios_dir, out_path)
+        elif self.exp_type == "KALMAN":
+            self.run_kalman(scenarios_dir, out_path)
         else:
             raise ValueError(f"Invalid experiment type: {self.exp_type}")
             
@@ -139,7 +142,11 @@ class ExperimentRunner:
         query_feat, reference_feat = self.load_feat(scenarios_dir)
         
         # run NOA
-        wp = alignNOA(query_feat, reference_feat) # already in seconds
+        norm = self.kwargs['norm']
+        if norm:
+            wp = alignNOA(query_feat, reference_feat) # already in seconds
+        else:
+            wp = alignNOA_no_norm(query_feat, reference_feat) # already in seconds
         
         # store result
         np.save(os.path.join(out_path, "hyp.npy"), wp)
@@ -167,3 +174,20 @@ class ExperimentRunner:
         
     def run_oltw(self, scenarios_dir, out_path):
         online_processing(scenarios_dir, out_path, self.kwargs['hop_length'])
+        
+    def run_kalman(self, scenarios_dir, out_path):
+        """
+        Runs Kalman experiment for the given scenario and stores results to output path.
+        """
+        # load query and reference features
+        query_feat, reference_feat = self.load_feat(scenarios_dir)
+        
+        # run Kalman
+        Q = np.array([[1e-2, 0], [0, 1e-3]])
+        R = np.array([[30]])
+        sigma_x = 100
+        sigma_v = 0.01
+        wp = alignNOAKalman(query_feat, reference_feat, Q = Q, R = R, sigma_x = sigma_x, sigma_v = sigma_v)
+        
+        # store result
+        np.save(os.path.join(out_path, "hyp.npy"), wp)
