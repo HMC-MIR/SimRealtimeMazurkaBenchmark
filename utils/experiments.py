@@ -8,7 +8,7 @@ from tqdm import tqdm
 import vamp
 import pandas as pd
 
-from noa import alignNOA, alignNOA_no_norm
+from noa import alignNOA, alignNOA_no_norm, compute_cosine_distance, compute_euclidean_distance
 from utils.oltw import online_processing
 from noa_kalman import alignNOAKalman
 
@@ -29,6 +29,26 @@ def cosine_dist(F1, F2):
     for row in prange(F1.shape[0]):
         for col in prange(F2.shape[0]):
             C[row, col] = 1 - np.dot(F1[row], F2[col]) / (np.linalg.norm(F1[row]) * np.linalg.norm(F2[col]) + 1e-9)
+    return C
+
+@jit(nopython=True, parallel=True)
+def euclidean_dist(F1, F2):
+    '''
+    Calculates the pairwise Euclidean distance matrix between two features matrices.
+
+    Inputs
+    F1: the first feature matrix, shape D x N
+    F2: the second feature matrix, shape D x M
+
+    Returns a pairwise cost matrix C of shape N x M, where elements indicate Euclidean distance.
+    '''
+    F1 = F1.T  # Now shape (N, D)
+    F2 = F2.T  # Now shape (M, D)
+    C = np.zeros((F1.shape[0], F2.shape[0]))
+    for row in prange(F1.shape[0]):
+        for col in prange(F2.shape[0]):
+            diff = F1[row] - F2[col]
+            C[row, col] = np.sqrt(np.sum(diff * diff))
     return C
 
 def parse_match_outfile(infile):
@@ -72,7 +92,7 @@ class ExperimentRunner:
         # run experiment
         if self.exp_type == "DTW":
             self.run_dtw(scenarios_dir, out_path)
-        elif self.exp_type == "NOA":
+        elif self.exp_type == "NOA" or self.exp_type == "NOA_MONOTONOUS":
             self.run_noa(scenarios_dir, out_path)
         elif self.exp_type == "MATCH":
             self.run_match(scenarios_dir, out_path)
@@ -122,7 +142,12 @@ class ExperimentRunner:
         query_feat, reference_feat = self.load_feat(scenarios_dir)
         
         # run DTW
-        C = cosine_dist(query_feat, reference_feat)
+        if self.kwargs['distance_metric'] == 'cosine':
+            C = cosine_dist(query_feat, reference_feat)
+        elif self.kwargs['distance_metric'] == 'euclidean':
+            C = euclidean_dist(query_feat, reference_feat)
+        else:
+            raise ValueError(f"Invalid distance metric: {self.kwargs['distance_metric']}")
         _, _, wp = dtw.dtw(C, self.kwargs['steps'], self.kwargs['weights'], True)
         
         # store result
@@ -131,7 +156,7 @@ class ExperimentRunner:
         np.save(os.path.join(out_path, "hyp.npy"), wp_sec)
         
         
-    def run_noa(self, scenarios_dir, out_path):
+    def run_noa(self, scenarios_dir, out_path, monotonous = False):
         """
         Runs NOA experiment for the given scenario and stores results to output path.
         """
@@ -141,12 +166,21 @@ class ExperimentRunner:
         # load query and reference features
         query_feat, reference_feat = self.load_feat(scenarios_dir)
         
+        # get distance metric
+        if self.kwargs['distance_metric'] == 'cosine':
+            cost_metric = compute_cosine_distance
+        elif self.kwargs['distance_metric'] == 'euclidean':
+            cost_metric = compute_euclidean_distance
+        else:
+            raise ValueError(f"Invalid distance metric: {self.kwargs['distance_metric']}")
+        
         # run NOA
         norm = self.kwargs['norm']
+        monotonous = self.kwargs['monotonous']
         if norm:
-            wp = alignNOA(query_feat, reference_feat) # already in seconds
+            wp = alignNOA(query_feat, reference_feat, cost_metric = cost_metric, monotonous = monotonous) # already in seconds
         else:
-            wp = alignNOA_no_norm(query_feat, reference_feat) # already in seconds
+            wp = alignNOA_no_norm(query_feat, reference_feat, cost_metric = cost_metric, monotonous = monotonous) # already in seconds
         
         # store result
         np.save(os.path.join(out_path, "hyp.npy"), wp)

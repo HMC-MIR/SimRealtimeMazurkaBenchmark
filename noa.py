@@ -21,6 +21,16 @@ def compute_cosine_distance(feature_row, reference_features):
     return costs
 
 @njit(cache=True)
+def compute_euclidean_distance(feature_row, reference_features):
+    """Compute Euclidean distance between feature vectors.
+    """
+    costs = np.empty(reference_features.shape[1], dtype=np.float32)
+    for j in range(reference_features.shape[1]):
+        ref_col = reference_features[:, j]
+        costs[j] = np.sqrt(np.sum((feature_row - ref_col) ** 2))
+    return costs
+
+@njit(cache=True)
 def update_alignment_row_numba_norm(i, costs, D, B, dn, dm, dw, ref_length):
     """
     Update alignment row using numba for optimized performance.
@@ -67,8 +77,8 @@ def update_alignment_row_numba_norm(i, costs, D, B, dn, dm, dw, ref_length):
 
     return best_j
 
-def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0, return_D = False):
-    '''
+def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0, return_D = False, hop_sec = 512 / 22050, monotonous = False):
+    """
     Align two feature matrices using NOA
     Inputs:
         F1: feature matrix of shape (n_features, n_frames) for the first audio file (query)
@@ -78,12 +88,12 @@ def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshap
         weights: weights for the DTW algorithm
         ref_start_time: time of the first frame of the reference to align to
         return_D: whether to return the cost matrix D
+        hop_sec: hop size in seconds
     Outputs:
         path: warping path of shape (2, n_frames) where the first row is the indices of F1 and the second row is the indices of F2
-    '''
+    """
     
     path = [[0,0]] # initialize path from origin
-    hop_sec = 512 / 22050
     F2 = F2[:, int(ref_start_time / hop_sec):]
     ref_length = F2.shape[1]
     dn, dm = steps[:, 0], steps[:, 1]
@@ -102,6 +112,9 @@ def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshap
         best_j = update_alignment_row_numba_norm(
             i, costs, D, B, dn, dm, weights, ref_length
         )
+        
+        if monotonous:
+            best_j = max(best_j, path[-1][1])
         
         path.append([i, best_j])
         
@@ -167,7 +180,7 @@ def update_alignment_row_numba(i, costs, D, B, dn, dm, dw, ref_length):
 
     return best_j
         
-def alignNOA_no_norm(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance):
+def alignNOA_no_norm(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, return_D = False):
     '''
     Align two feature matrices using NOA without normalization
     Inputs:
@@ -207,4 +220,7 @@ def alignNOA_no_norm(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]
     if outfile:
         pickle.dump(path, open(outfile, 'wb'))
 
-    return path
+    if return_D:
+        return path, D
+    else:
+        return path
