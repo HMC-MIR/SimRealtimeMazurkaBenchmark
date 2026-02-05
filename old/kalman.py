@@ -20,6 +20,7 @@ class KalmanFilter:
         self.S = None # innovation covariance matrix
         self.innovation = None # innovation
         self.K = None # Kalman gain
+        self.alpha = 0.3 # forgetting factor
         
     def predict(self, u):
         """
@@ -48,8 +49,27 @@ class KalmanFilter:
         self.S = np.dot(self.H, np.dot(self.P, self.H.T)) + self.R # recalculate the measurement covariance matrix
         self.K = np.dot(np.dot(self.P, self.H.T), np.linalg.inv(self.S)) # Kalman gain
         self.x = self.x + np.dot(self.K, self.innovation) # updated state
-        self.P = np.dot(np.eye(self.P.shape[0]) - np.dot(self.K, self.H), self.P) # state covariance matrix
+        self.update_covariance(z)
         return self.x
+    
+    def update_covariance(self, z, akhlaghi_method = False):
+        """
+        Update the covariance of the system. 
+        Inputs:
+            z: measurement
+            akhlaghi_method: whether to use the Akhlaghi method to update the covariance
+        """
+        if akhlaghi_method:
+            residual = z - np.dot(self.H, self.x)
+            self.base_R = self.alpha * self.R_base + (1 - self.alpha) * (np.dot(residual, residual.T) + np.dot(self.H, np.dot(self.P, self.H.T)))
+            self.K = np.dot(np.dot(self.P, self.H.T), np.linalg.inv(self.S)) # Kalman gain
+        
+        self.P = np.dot(np.eye(self.P.shape[0]) - np.dot(self.K, self.H), self.P) # state covariance matrix
+        
+        if akhlaghi_method:
+            Kd = np.dot(self.K,self.innovation)
+            self.Q = self.alpha * self.Q + (1 - self.alpha) * np.dot(Kd, Kd.T)
+        
     
     def clip_innovation(self, sigma, n):
         """
@@ -65,7 +85,9 @@ class KalmanFilter:
         
 def adaptive_R(R_base, nu, S, tau=3.0, inflation=50.0):
     """
-    Inflate R when innovation is too large.
+    Inflate R when |nu| > tau * sqrt(S).
+    tau ~ 3 is typical.
+    inflation ~ 10 to 200 depending on severity.
     """
     threshold = tau * np.sqrt(S)
     if np.abs(nu) > threshold:

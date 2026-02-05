@@ -121,7 +121,7 @@ def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshap
     return path
 
 class NOAKalman:
-    def __init__(self, F, B, H, Q, R, x0, P0, F2, hop_sec = 512 / 22050, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0, max_timewarp_factor = 3):
+    def __init__(self, F, B, H, Q, R, x0, P0, F2, hop_sec = 512 / 22050, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0, max_timewarp_factor = 3, max_acceleration = None):
         """
         Initialize the NOAKalman class
         Inputs:
@@ -138,7 +138,8 @@ class NOAKalman:
             weights: weights for the DTW algorithm
             cost_metric: cost metric for the DTW algorithm
             ref_start_time: time of the first frame of the reference to align to
-            max_timewarp_factor: maximum time warp factor
+            max_timewarp_factor: maximum time warp factor (velocity clamp)
+            max_acceleration: optional acceleration clamp (absolute value)
         """
         # initialize kalman filter
         self.kalman_filter = KalmanFilter(F, B, H, Q, R, x0, P0)
@@ -154,12 +155,15 @@ class NOAKalman:
         self.weights = weights
         self.cost_metric = cost_metric
         self.max_timewarp_factor = max_timewarp_factor
+        self.max_acceleration = max_acceleration
         
         # initialize history arrays
         self.velocity_history = [] # records the relative tempo of the Kalman filter, i.e. x[1]
+        self.acceleration_history = [] # records the acceleration/jerk estimate, i.e. x[2]
         self.innovation_history = [] # records the innovation of the Kalman filter, i.e. z - Hx
         self.kalman_gain_history = [] # records the Kalman gain of the Kalman filter, i.e. K
         self.innovation_variance_history = [] # records the variance of the innovation of the Kalman filter, i.e. S
+        self.P_history = [] # records the state covariance matrix of the Kalman filter, i.e. P
         
         # initalize NOA stored info
         self.max_query_length = 2 * self.ref_length
@@ -207,11 +211,20 @@ class NOAKalman:
         # clamp velocity to between 1/max_timewarp_factor and max_timewarp_factor
         predicted_velocity = max(1/self.max_timewarp_factor, min(self.kalman_filter.x[1], self.max_timewarp_factor))
         self.kalman_filter.x[1] = predicted_velocity
+        if self.max_acceleration is not None and self.kalman_filter.x.shape[0] >= 3:
+            accel = max(-self.max_acceleration, min(self.kalman_filter.x[2], self.max_acceleration))
+            self.kalman_filter.x[2] = accel
+            self.acceleration_history.append(accel)
+        elif self.kalman_filter.x.shape[0] >= 3:
+            self.acceleration_history.append(self.kalman_filter.x[2])
+        else:
+            self.acceleration_history.append(0.0)
         self.velocity_history.append(predicted_velocity)
         
         self.innovation_history.append(self.kalman_filter.innovation[0])
         self.kalman_gain_history.append(self.kalman_filter.K)
         self.innovation_variance_history.append(self.kalman_filter.S[0, 0])
+        self.P_history.append(self.kalman_filter.P)
     
     def align(self, F1):
         """
@@ -224,7 +237,9 @@ class NOAKalman:
         for i in range(1, F1.shape[1]):
             self.i = i
             # Predict step: predict the next state before getting the measurement
-            u = np.zeros(1)  # No control input since we have no acceleration
+            # choose a zero control input that matches the control dimension
+            control_dim = self.kalman_filter.B.shape[1] if self.kalman_filter.B.ndim == 2 else 0
+            u = np.zeros(control_dim)
             self.kalman_filter.predict(u)
             
             # Get measurement from NOA alignment
@@ -259,14 +274,16 @@ class NOAKalman:
         return path
     
 def alignNOAKalman(F1, F2, 
-                   F = np.array([[1, 1], [0, 1]]), 
-                   B = np.array([[0.5], [1]]), 
-                   H = np.array([[1, 0]]), 
-                   Q = np.array([[1, 0], [0, 1]]), 
-                   R = np.array([[1]]),
-                   sigma_x = 1, sigma_v = 1,
+                   F = np.array([[1., 1., 0.5],
+                                 [0., 1., 1.],
+                                 [0., 0., 1.]]), 
+                   B = np.zeros((3, 1)), 
+                   H = np.array([[1., 0., 0.]]), 
+                   Q = np.diag([1., 1., 1.]), 
+                   R = np.array([[1.]]),
+                   sigma_x = 1, sigma_v = 1, sigma_a = 1,
                    outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0,
-                   return_path = True):
+                   return_path = True, max_acceleration = None):
     """
     Aligns the query feature matrix F1 with the reference feature matrix F2 using NOA and Kalman filter
     Inputs:
@@ -279,6 +296,7 @@ def alignNOAKalman(F1, F2,
         R: measurement noise covariance
         sigma_x: uncertainty of the state vector
         sigma_v: uncertainty of the speed
+        sigma_a: uncertainty of the acceleration
         outfile: path to save the output pickle file
         steps: step sizes for the DTW algorithm
         weights: weights for the DTW algorithm
@@ -287,9 +305,9 @@ def alignNOAKalman(F1, F2,
     Outputs:
         path: warping path of shape (2, n_frames) where the first row is the indices of F1 and the second row is the indices of F2
     """
-    x0 = np.array([0, 1])
-    P0 = np.array([[sigma_x**2, 0], [0, sigma_v**2]]) # initial state covariance matrix
-    noa_kalman = NOAKalman(F, B, H, Q, R, x0, P0, F2 = F2, hop_sec = 512 / 22050, steps = steps, weights = weights, cost_metric = cost_metric, ref_start_time = ref_start_time)
+    x0 = np.array([0., 1., 0.])
+    P0 = np.diag([sigma_x**2, sigma_v**2, sigma_a**2]) # initial state covariance matrix
+    noa_kalman = NOAKalman(F, B, H, Q, R, x0, P0, F2 = F2, hop_sec = 512 / 22050, steps = steps, weights = weights, cost_metric = cost_metric, ref_start_time = ref_start_time, max_acceleration = max_acceleration)
     noa_kalman.align(F1)
     path = noa_kalman.get_path()
     if outfile:
@@ -299,5 +317,3 @@ def alignNOAKalman(F1, F2,
         return path
     else:
         return noa_kalman
-    
-    
