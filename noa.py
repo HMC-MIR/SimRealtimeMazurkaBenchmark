@@ -77,7 +77,7 @@ def update_alignment_row_numba_norm(i, costs, D, B, dn, dm, dw, ref_length):
 
     return best_j
 
-def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0, return_D = False, hop_sec = 512 / 22050, monotonous = False):
+def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0, return_D = False, hop_sec = 512 / 22050, monotonic = False):
     """
     Align two feature matrices using NOA
     Inputs:
@@ -113,7 +113,7 @@ def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshap
             i, costs, D, B, dn, dm, weights, ref_length
         )
         
-        if monotonous:
+        if monotonic:
             best_j = max(best_j, path[-1][1])
         
         path.append([i, best_j])

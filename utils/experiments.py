@@ -93,7 +93,7 @@ class ExperimentRunner:
         # run experiment
         if self.exp_type == "DTW":
             self.run_dtw(scenarios_dir, out_path)
-        elif self.exp_type == "NOA" or self.exp_type == "NOA_MONOTONOUS":
+        elif self.exp_type == "NOA" or self.exp_type == "NOA_MONOTONIC":
             self.run_noa(scenarios_dir, out_path)
         elif self.exp_type == "MATCH":
             self.run_match(scenarios_dir, out_path)
@@ -159,7 +159,7 @@ class ExperimentRunner:
         np.save(os.path.join(out_path, "hyp.npy"), wp_sec)
         
         
-    def run_noa(self, scenarios_dir, out_path, monotonous = False):
+    def run_noa(self, scenarios_dir, out_path, monotonic = False):
         """
         Runs NOA experiment for the given scenario and stores results to output path.
         """
@@ -179,11 +179,11 @@ class ExperimentRunner:
         
         # run NOA
         norm = self.kwargs['norm']
-        monotonous = self.kwargs['monotonous']
+        monotonic = self.kwargs['monotonic']
         if norm:
-            wp = alignNOA(query_feat, reference_feat, cost_metric = cost_metric, monotonous = monotonous) # already in seconds
+            wp = alignNOA(query_feat, reference_feat, cost_metric = cost_metric, monotonic = monotonic) # already in seconds
         else:
-            wp = alignNOA_no_norm(query_feat, reference_feat, cost_metric = cost_metric, monotonous = monotonous) # already in seconds
+            wp = alignNOA_no_norm(query_feat, reference_feat, cost_metric = cost_metric, monotonic = monotonic) # already in seconds
         
         # store result
         np.save(os.path.join(out_path, "hyp.npy"), wp)
