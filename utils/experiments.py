@@ -11,6 +11,7 @@ import pandas as pd
 from noa import alignNOA, alignNOA_no_norm, compute_cosine_distance, compute_euclidean_distance
 from utils.oltw import online_processing
 from noa_kalman import alignNOAKalman
+from OnlineAlignment.core.alignment import run_offline_oltw
 
 @jit(nopython=True, parallel=True)
 def cosine_dist(F1, F2):
@@ -100,6 +101,8 @@ class ExperimentRunner:
             self.run_oltw(scenarios_dir, out_path)
         elif self.exp_type == "KALMAN":
             self.run_kalman(scenarios_dir, out_path)
+        elif self.exp_type == "OLTW_GLOBAL":
+            self.run_oltw_global(scenarios_dir, out_path)
         else:
             raise ValueError(f"Invalid experiment type: {self.exp_type}")
             
@@ -184,6 +187,34 @@ class ExperimentRunner:
         
         # store result
         np.save(os.path.join(out_path, "hyp.npy"), wp)
+        
+    def run_oltw_global(self, scenarios_dir, out_path):
+        """
+        Runs global OLTW experiment for the given scenario and stores results to output path.
+        """
+        # generate out_path
+        os.makedirs(out_path, exist_ok=True)
+        
+        # load query and reference features
+        query_feat, reference_feat = self.load_feat(scenarios_dir)
+        
+        # get distance metric
+        if self.kwargs['distance_metric'] == 'cosine':
+            cost_metric = compute_cosine_distance
+        elif self.kwargs['distance_metric'] == 'euclidean':
+            cost_metric = compute_euclidean_distance
+        else:
+            raise ValueError(f"Invalid distance metric: {self.kwargs['distance_metric']}")
+        
+        # run NOA
+        wp = run_offline_oltw(reference_feat, query_feat, c=self.kwargs['c'])
+        
+        # convert to seconds
+        hop_sec = self.kwargs['hop_length'] / self.kwargs['sr']
+        wp_sec = wp * hop_sec
+        
+        # store result
+        np.save(os.path.join(out_path, "hyp.npy"), wp_sec)
         
     def run_match(self, scenarios_dir, out_path):
         """
