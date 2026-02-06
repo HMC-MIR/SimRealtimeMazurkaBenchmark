@@ -8,7 +8,7 @@ from tqdm import tqdm
 import vamp
 import pandas as pd
 
-from noa import alignNOA, alignNOA_no_norm, compute_cosine_distance, compute_euclidean_distance
+from noa import alignNOA,alignNOA_no_norm, compute_cosine_distance, compute_euclidean_distance
 from utils.oltw import online_processing
 from noa_kalman import alignNOAKalman
 from OnlineAlignment.core.alignment import run_offline_oltw
