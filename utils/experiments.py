@@ -203,8 +203,14 @@ class ExperimentRunner:
         else:
             raise ValueError(f"Invalid distance metric: {self.kwargs['distance_metric']}")
         
+        # parse steps and weights for window and transition
+        window_steps = self.kwargs['window_steps']
+        transition_steps = self.kwargs['transition_steps']
+        window_weights = self.kwargs['window_weights']
+        transition_weights = self.kwargs['transition_weights']
+
         # run NOA
-        wp = run_offline_oltw(reference_feat, query_feat, c=self.kwargs['c'])
+        wp = run_offline_oltw(reference_feat, query_feat, c=self.kwargs['c'], window_steps=window_steps, transition_steps=transition_steps, window_weights=window_weights, transition_weights=transition_weights)
         
         # convert to seconds
         hop_sec = self.kwargs['hop_length'] / self.kwargs['sr']
