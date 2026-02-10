@@ -10,7 +10,6 @@ import pandas as pd
 
 from noa import alignNOA,alignNOA_no_norm, compute_cosine_distance, compute_euclidean_distance
 from utils.oltw import online_processing
-from noa_kalman import alignNOAKalman
 from OnlineAlignment.core.alignment import run_offline_oltw
 
 @jit(nopython=True, parallel=True)
@@ -99,8 +98,6 @@ class ExperimentRunner:
             self.run_match(scenarios_dir, out_path)
         elif self.exp_type == "OLTW":
             self.run_oltw(scenarios_dir, out_path)
-        elif self.exp_type == "KALMAN":
-            self.run_kalman(scenarios_dir, out_path)
         elif self.exp_type == "OLTW_GLOBAL":
             self.run_oltw_global(scenarios_dir, out_path)
         else:
@@ -239,20 +236,3 @@ class ExperimentRunner:
         
     def run_oltw(self, scenarios_dir, out_path):
         online_processing(scenarios_dir, out_path, self.kwargs['hop_length'])
-        
-    def run_kalman(self, scenarios_dir, out_path):
-        """
-        Runs Kalman experiment for the given scenario and stores results to output path.
-        """
-        # load query and reference features
-        query_feat, reference_feat = self.load_feat(scenarios_dir)
-        
-        # run Kalman
-        Q = np.array([[1e-2, 0], [0, 1e-3]])
-        R = np.array([[30]])
-        sigma_x = 100
-        sigma_v = 0.01
-        wp = alignNOAKalman(query_feat, reference_feat, Q = Q, R = R, sigma_x = sigma_x, sigma_v = sigma_v)
-        
-        # store result
-        np.save(os.path.join(out_path, "hyp.npy"), wp)
