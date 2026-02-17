@@ -98,7 +98,7 @@ class ExperimentRunner:
             self.run_match(scenarios_dir, out_path)
         elif self.exp_type == "OLTW":
             self.run_oltw(scenarios_dir, out_path)
-        elif self.exp_type == "OLTW_GLOBAL":
+        elif "OLTW_GLOBAL" in self.exp_type:
             self.run_oltw_global(scenarios_dir, out_path)
         else:
             raise ValueError(f"Invalid experiment type: {self.exp_type}")
@@ -204,13 +204,12 @@ class ExperimentRunner:
             raise ValueError(f"Invalid distance metric: {self.kwargs['distance_metric']}")
         
         # parse steps and weights for window and transition
+        DTW_steps = self.kwargs['DTW_steps']
         window_steps = self.kwargs['window_steps']
-        transition_steps = self.kwargs['transition_steps']
-        window_weights = self.kwargs['window_weights']
-        transition_weights = self.kwargs['transition_weights']
+        DTW_weights = self.kwargs['DTW_weights']
 
         # run NOA
-        wp = run_offline_oltw(reference_feat, query_feat, c=self.kwargs['c'], window_steps=window_steps, transition_steps=transition_steps, window_weights=window_weights, transition_weights=transition_weights)
+        wp = run_offline_oltw(reference_feat, query_feat, c=self.kwargs['c'], DTW_steps=DTW_steps, window_steps=window_steps, DTW_weights=DTW_weights)
         
         # convert to seconds
         hop_sec = self.kwargs['hop_length'] / self.kwargs['sr']
