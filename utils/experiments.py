@@ -1,4 +1,5 @@
 import os
+import logging
 import subprocess
 
 import numpy as np
@@ -64,13 +65,15 @@ def parse_match_outfile(infile):
             return np.vstack((d.loc[:,1], d.loc[:,2]))
 
 class ExperimentRunner:
-    def __init__(self, exp_type, kwargs):
+    def __init__(self, exp_type, kwargs, logger=None):
         """
         exp_type: experiment to run. Currently accepts DTW, NOA, or MATCH
         kwargs: arguments needed to pass in for the experiment
+        logger: optional logger instance
         """
         self.exp_type = exp_type
         self.kwargs = kwargs
+        self.logger = logger
         
     def run(self, scenarios_dir, out_dir):
         """
@@ -113,7 +116,14 @@ class ExperimentRunner:
         for scenario_dir in tqdm(os.listdir(scenarios_root)):
             scenario_path = os.path.join(scenarios_root, scenario_dir)
             if os.path.isdir(scenario_path):
-                self.run(scenario_path, out_dir)
+                try:
+                    self.run(scenario_path, out_dir)
+                except Exception as e:
+                    if self.logger:
+                        self.logger.error(f"Error running experiment for {scenario_path}: {e}", exc_info=True)
+                    else:
+                        print(f"Error running experiment for {scenario_path}: {e}")
+                    continue
                 
     def load_feat(self, scenarios_dir):
         """

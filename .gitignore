@@ -208,15 +208,22 @@ __marimo__/
 
 # match
 match/
+OnlineAlignment/
 
 # Data Files
 Chopin_Mazurkas
 features/
 scenarios/
+scenarios_train/
 experiments/
 experiments_match/
+experiments_train/
 eval/
 eval_tsm/
 eval_match/
 eval_match_tsm/
+eval_train/
 match_feat_src/
+
+# logs
+logs/

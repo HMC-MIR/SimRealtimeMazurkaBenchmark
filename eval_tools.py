@@ -30,27 +30,76 @@ def getGroundTruthTimestamps(query_annot_file, ref_annot_file):
     gt = np.stack([gt_query, gt_ref], axis = 1)
     return gt
 
-def eval_alignment_single(hypfile, query_annot_file, ref_annot_file, outfile = None):
-    gt = getGroundTruthTimestamps(query_annot_file, ref_annot_file)
-    if gt.shape[0] == 0:
-        print(f'No measures to evaluate in {hypfile}')
-        return None, None
-    
+
+import logging
+
+def eval_alignment_single(hypfile, query_annot_file, ref_annot_file, outfile = None, logger: logging.Logger = None):
     # check if hypfile exists
     if not os.path.exists(hypfile):
-        print(f'{hypfile} does not exist')
+        if logger:
+            logger.warning(f'{hypfile} does not exist')
+        else:
+            print(f'{hypfile} does not exist')
         return None, None
+
+    # check annotation files
+    if not os.path.exists(query_annot_file):
+        if logger:
+            logger.warning(f'{query_annot_file} does not exist')
+        else:
+            print(f'{query_annot_file} does not exist')
+        return None, None
+        
+    if not os.path.exists(ref_annot_file):
+        if logger:
+            logger.warning(f'{ref_annot_file} does not exist')
+        else:
+            print(f'{ref_annot_file} does not exist')
+        return None, None
+
+    gt = getGroundTruthTimestamps(query_annot_file, ref_annot_file)
+    if gt.shape[0] == 0:
+        if logger:
+            logger.warning(f'No measures to evaluate in {hypfile}')
+        else:
+            print(f'No measures to evaluate in {hypfile}')
+        return None, None
+    
     hypalign = np.load(hypfile)
     
-    pred = np.interp(gt[:,0], hypalign[0,:], hypalign[1,:])
-    err = pred - gt[:,1]
-    return err
+    try:
+        pred = np.interp(gt[:,0], hypalign[0,:], hypalign[1,:])
+        err = pred - gt[:,1]
+        return err
+    except Exception as e:
+        if logger:
+            logger.error(f"Error evaluating {hypfile}: {e}")
+        else:
+            print(f"Error evaluating {hypfile}: {e}")
+        return None
 
-def eval_alignment_batch(exp_dir, scenarios_dir, out_dir, tsm = False, lag = 0, hypFileExt = ''):
+def eval_alignment_batch(exp_dir, scenarios_dir, out_dir, tsm = False, lag = 0, hypFileExt = '', logger: logging.Logger = None):
     # evaluate all scenarios
     d = {}
     
-    for scenario_id in os.listdir(scenarios_dir):
+    if not os.path.exists(scenarios_dir):
+        msg = f"Scenarios directory not found: {scenarios_dir}"
+        if logger: logger.error(msg)
+        else: print(msg)
+        return
+
+    scenario_ids = sorted(os.listdir(scenarios_dir))
+    if logger:
+        logger.info(f"evaluating {len(scenario_ids)} scenarios from {exp_dir}")
+    
+    success_count = 0
+    fail_count = 0
+    
+    for scenario_id in scenario_ids:
+        # Skip if not a directory
+        if not os.path.isdir(os.path.join(scenarios_dir, scenario_id)):
+            continue
+            
         if tsm:
             if lag == 0:
                 hypFile = f'{exp_dir}/{scenario_id}/tsm{hypFileExt}.npy'
@@ -61,11 +110,22 @@ def eval_alignment_batch(exp_dir, scenarios_dir, out_dir, tsm = False, lag = 0, 
             
         query_annot_file = f'{scenarios_dir}/{scenario_id}/query.beats'
         ref_annot_file = f'{scenarios_dir}/{scenario_id}/ref.beats'
-        err = eval_alignment_single(hypFile, query_annot_file, ref_annot_file)
-        d[scenario_id] = err
+        
+        err = eval_alignment_single(hypFile, query_annot_file, ref_annot_file, logger=logger)
+        
+        if err is not None:
+            d[scenario_id] = err
+            success_count += 1
+        else:
+            fail_count += 1
     
     # save
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
     outfile = f'{out_dir}/errs.pkl'
     pickle.dump(d, open(outfile, 'wb'))
+    
+    if logger:
+        logger.info(f"Evaluation complete. Success: {success_count}, Failed: {fail_count}. Results saved to {outfile}")
+    else:
+        print(f"Evaluation complete. Success: {success_count}, Failed: {fail_count}. Results saved to {outfile}")

@@ -1,0 +1,248 @@
+{
+    "OLTW_GLOBAL_A": {
+        "_description": "Setting A: 100111-111 window, 100111 alignment",
+        "hop_length": 512,
+        "feat_dir": "features/chroma_stft_norm2",
+        "sr": 22050,
+        "distance_metric": "cosine",
+        "c": null,
+        "DTW_steps": [
+            [
+                1,
+                0
+            ],
+            [
+                0,
+                1
+            ],
+            [
+                1,
+                1
+            ]
+        ],
+        "DTW_weights": [
+            1,
+            1,
+            1
+        ],
+        "window_steps": [
+            [
+                1,
+                1
+            ],
+            [
+                1,
+                0
+            ],
+            [
+                0,
+                1
+            ]
+        ]
+    },
+    "OLTW_GLOBAL_B": {
+        "_description": "Setting B: 100111-111 window, 111221 alignment",
+        "hop_length": 512,
+        "feat_dir": "features/chroma_stft_norm2",
+        "sr": 22050,
+        "distance_metric": "cosine",
+        "c": null,
+        "DTW_steps": [
+            [
+                1,
+                0
+            ],
+            [
+                0,
+                1
+            ],
+            [
+                1,
+                1
+            ]
+        ],
+        "DTW_weights": [
+            1,
+            1,
+            1
+        ],
+        "window_steps": [
+            [
+                1,
+                1
+            ],
+            [
+                2,
+                1
+            ],
+            [
+                1,
+                2
+            ]
+        ]
+    },
+    "OLTW_GLOBAL_C": {
+        "_description": "Setting C: 111221-111 window, 111221 alignment",
+        "hop_length": 512,
+        "feat_dir": "features/chroma_stft_norm2",
+        "sr": 22050,
+        "distance_metric": "cosine",
+        "c": null,
+        "DTW_steps": [
+            [
+                1,
+                1
+            ],
+            [
+                1,
+                2
+            ],
+            [
+                2,
+                1
+            ]
+        ],
+        "DTW_weights": [
+            1,
+            1,
+            1
+        ],
+        "window_steps": [
+            [
+                1,
+                1
+            ],
+            [
+                2,
+                1
+            ],
+            [
+                1,
+                2
+            ]
+        ]
+    },
+    "OLTW_GLOBAL_D": {
+        "_description": "Setting D: 111221-233 window, 111221 alignment",
+        "hop_length": 512,
+        "feat_dir": "features/chroma_stft_norm2",
+        "sr": 22050,
+        "distance_metric": "cosine",
+        "c": null,
+        "DTW_steps": [
+            [
+                1,
+                1
+            ],
+            [
+                1,
+                2
+            ],
+            [
+                2,
+                1
+            ]
+        ],
+        "DTW_weights": [
+            2,
+            3,
+            3
+        ],
+        "window_steps": [
+            [
+                1,
+                1
+            ],
+            [
+                2,
+                1
+            ],
+            [
+                1,
+                2
+            ]
+        ]
+    },
+    "OLTW_GLOBAL_E": {
+        "_description": "Setting E: 111221-233 window, 100111 alignment",
+        "hop_length": 512,
+        "feat_dir": "features/chroma_stft_norm2",
+        "sr": 22050,
+        "distance_metric": "cosine",
+        "c": null,
+        "DTW_steps": [
+            [
+                1,
+                1
+            ],
+            [
+                1,
+                2
+            ],
+            [
+                2,
+                1
+            ]
+        ],
+        "DTW_weights": [
+            2,
+            3,
+            3
+        ],
+        "window_steps": [
+            [
+                1,
+                1
+            ],
+            [
+                1,
+                0
+            ],
+            [
+                0,
+                1
+            ]
+        ]
+    },
+    "OLTW_GLOBAL_F": {
+        "_description": "Setting F: 111221-111 window, 100111 alignment",
+        "hop_length": 512,
+        "feat_dir": "features/chroma_stft_norm2",
+        "sr": 22050,
+        "distance_metric": "cosine",
+        "c": null,
+        "DTW_steps": [
+            [
+                1,
+                1
+            ],
+            [
+                1,
+                2
+            ],
+            [
+                2,
+                1
+            ]
+        ],
+        "DTW_weights": [
+            1,
+            1,
+            1
+        ],
+        "window_steps": [
+            [
+                1,
+                1
+            ],
+            [
+                1,
+                0
+            ],
+            [
+                0,
+                1
+            ]
+        ]
+    }
+}
