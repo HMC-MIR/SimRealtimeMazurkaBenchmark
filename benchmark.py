@@ -267,6 +267,17 @@ def load_system_config(config_path: Optional[str], systems: List[str], logger: l
     return get_default_configs(systems)
 
 
+def path_to_monotonic(path: np.ndarray) -> np.ndarray:
+    """
+    Convert a warping path to a monotonic path by making the reference (second) row
+    non-decreasing via cumulative maximum. Path shape is (2, n_frames); row 0 = query, row 1 = reference.
+    """
+    path = np.asarray(path)
+    out = path.copy()
+    out[1, :] = np.maximum.accumulate(path[1, :])
+    return out
+
+
 def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
     """Get default configurations for specified systems."""
     configs = {}
@@ -389,22 +400,51 @@ def cmd_experiment(args, logger: logging.Logger):
     # Load system configurations
     system_configs = load_system_config(args.config, args.systems, logger)
     
-    # Clean and create experiment directories
-    logger.info(f"Cleaning experiment directory: {exp_dir}")
-    if os.path.exists(exp_dir):
-        shutil.rmtree(exp_dir)
-    os.makedirs(exp_dir, exist_ok=True)
+    # Ensure NOA runs before NOA_MONOTONIC when both are requested
+    systems_order = []
+    if 'NOA' in args.systems:
+        systems_order.append('NOA')
+    if 'NOA_MONOTONIC' in args.systems:
+        systems_order.append('NOA_MONOTONIC')
+    for s in args.systems:
+        if s not in ('NOA', 'NOA_MONOTONIC'):
+            systems_order.append(s)
     
-    for system in args.systems:
-        os.makedirs(os.path.join(exp_dir, system), exist_ok=True)
+    # Ensure experiment directory exists; clean only the systems being run
+    os.makedirs(exp_dir, exist_ok=True)
+    for system in systems_order:
+        system_dir = os.path.join(exp_dir, system)
+        if os.path.exists(system_dir):
+            logger.info(f"Cleaning experiment directory for {system}: {system_dir}")
+            shutil.rmtree(system_dir)
+        os.makedirs(system_dir, exist_ok=True)
     
     # Run experiments for each system
-    for system in args.systems:
+    for system in systems_order:
         logger.info(f"Running {system} experiments")
         
         if system not in system_configs:
             logger.error(f"No configuration found for system: {system}")
             continue
+        
+        if system == 'NOA_MONOTONIC':
+            # If NOA paths exist, convert them to monotonic instead of recomputing
+            noa_dir = os.path.join(exp_dir, 'NOA')
+            noa_mono_dir = os.path.join(exp_dir, 'NOA_MONOTONIC')
+            scenario_ids = [d for d in os.listdir(scenarios_dir)
+                           if os.path.isdir(os.path.join(scenarios_dir, d))]
+            converted = 0
+            for scenario_id in scenario_ids:
+                noa_hyp = os.path.join(noa_dir, scenario_id, 'hyp.npy')
+                if os.path.isfile(noa_hyp):
+                    path = np.load(noa_hyp)
+                    path_mono = path_to_monotonic(path)
+                    out_path = os.path.join(noa_mono_dir, scenario_id)
+                    os.makedirs(out_path, exist_ok=True)
+                    np.save(os.path.join(out_path, 'hyp.npy'), path_mono)
+                    converted += 1
+            if converted:
+                logger.info(f"Generated NOA_MONOTONIC from existing NOA paths for {converted} scenarios")
         
         # Convert lists back to numpy arrays for DTW steps/weights
         kwargs = system_configs[system].copy()
