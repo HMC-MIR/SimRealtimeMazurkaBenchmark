@@ -11,7 +11,7 @@ import pandas as pd
 
 from noa import alignNOA,alignNOA_no_norm, compute_cosine_distance, compute_euclidean_distance
 from utils.oltw import online_processing
-from OnlineAlignment.core.alignment import run_offline_oltw
+from online_alignment import run_offline_oltw
 
 @jit(nopython=True, parallel=True)
 def cosine_dist(F1, F2):
@@ -101,7 +101,7 @@ class ExperimentRunner:
             self.run_match(scenarios_dir, out_path)
         elif self.exp_type == "OLTW":
             self.run_oltw(scenarios_dir, out_path)
-        elif "OLTW_GLOBAL" in self.exp_type:
+        elif "OLTW_" in self.exp_type:
             self.run_oltw_global(scenarios_dir, out_path)
         else:
             raise ValueError(f"Invalid experiment type: {self.exp_type}")
