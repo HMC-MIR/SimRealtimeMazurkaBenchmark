@@ -9,9 +9,9 @@ from tqdm import tqdm
 import vamp
 import pandas as pd
 
-from noa import alignNOA,alignNOA_no_norm, compute_cosine_distance, compute_euclidean_distance
+from noa import compute_cosine_distance, compute_euclidean_distance
 from utils.oltw import online_processing
-from online_alignment import run_offline_oltw
+from online_alignment import run_offline_oltw, run_offline_noa
 
 @jit(nopython=True, parallel=True)
 def cosine_dist(F1, F2):
@@ -176,24 +176,17 @@ class ExperimentRunner:
         # load query and reference features
         query_feat, reference_feat = self.load_feat(scenarios_dir)
         
-        # get distance metric
-        if self.kwargs['distance_metric'] == 'cosine':
-            cost_metric = compute_cosine_distance
-        elif self.kwargs['distance_metric'] == 'euclidean':
-            cost_metric = compute_euclidean_distance
-        else:
-            raise ValueError(f"Invalid distance metric: {self.kwargs['distance_metric']}")
-        
         # run NOA
         norm = self.kwargs['norm']
         monotonic = self.kwargs['monotonic']
-        if norm:
-            wp = alignNOA(query_feat, reference_feat, cost_metric = cost_metric, monotonic = monotonic) # already in seconds
-        else:
-            wp = alignNOA_no_norm(query_feat, reference_feat, cost_metric = cost_metric, monotonic = monotonic) # already in seconds
+        wp = run_offline_noa(reference_feat, query_feat, cost_metric = self.kwargs['distance_metric'], monotonic = monotonic, normalize = norm)
+        
+        # convert to seconds
+        hop_sec = self.kwargs['hop_length'] / self.kwargs['sr']
+        wp_sec = wp * hop_sec
         
         # store result
-        np.save(os.path.join(out_path, "hyp.npy"), wp)
+        np.save(os.path.join(out_path, "hyp.npy"), wp_sec)
         
     def run_oltw_global(self, scenarios_dir, out_path):
         """
@@ -205,21 +198,13 @@ class ExperimentRunner:
         # load query and reference features
         query_feat, reference_feat = self.load_feat(scenarios_dir)
         
-        # get distance metric
-        if self.kwargs['distance_metric'] == 'cosine':
-            cost_metric = compute_cosine_distance
-        elif self.kwargs['distance_metric'] == 'euclidean':
-            cost_metric = compute_euclidean_distance
-        else:
-            raise ValueError(f"Invalid distance metric: {self.kwargs['distance_metric']}")
-        
         # parse steps and weights for window and transition
         DTW_steps = self.kwargs['DTW_steps']
         window_steps = self.kwargs['window_steps']
         DTW_weights = self.kwargs['DTW_weights']
 
         # run NOA
-        wp = run_offline_oltw(reference_feat, query_feat, c=self.kwargs['c'], DTW_steps=DTW_steps, window_steps=window_steps, DTW_weights=DTW_weights)
+        wp = run_offline_oltw(reference_feat, query_feat, c=self.kwargs['c'], DTW_steps=DTW_steps, window_steps=window_steps, DTW_weights=DTW_weights, cost_metric=self.kwargs['distance_metric'])
         
         # convert to seconds
         hop_sec = self.kwargs['hop_length'] / self.kwargs['sr']
