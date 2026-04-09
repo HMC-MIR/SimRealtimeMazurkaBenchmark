@@ -227,3 +227,7 @@ match_feat_src/
 
 # logs
 logs/
+
+# models
+dense_nn/
+noa_nn/
