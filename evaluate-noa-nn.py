@@ -92,18 +92,25 @@ def build_input_noa(D_matrix, q_idx, r_idx, L):
                        constant_values=np.inf)
     else:
         x_vec = D_matrix[q_idx, start_j : end_j + 1]
+    
+
+    target = 2 * L + 1
+    if x_vec.shape[0] < target:
+        x_vec = np.pad(x_vec, (0, target - x_vec.shape[0]), constant_values=np.inf)
+    elif x_vec.shape[0] > target:
+        x_vec = x_vec[:target]
 
     # # Pre-process same as training
-    # mask = np.isinf(x_vec)
-    # if not np.all(mask):
-    #     x_vec[mask] = np.max(x_vec[~mask]) * 1.1
-    #     v_min, v_max = x_vec.min(), x_vec.max()
-    #     if v_max > v_min:
-    #         x_vec = (x_vec - v_min) / (v_max - v_min)
-    #     else:
-    #         x_vec = np.zeros_like(x_vec)
-    # else:
-    #     x_vec = np.zeros_like(x_vec)
+    mask = np.isinf(x_vec)
+    if not np.all(mask):
+        x_vec[mask] = np.max(x_vec[~mask]) * 1.1
+        v_min, v_max = x_vec.min(), x_vec.max()
+        if v_max > v_min:
+            x_vec = (x_vec - v_min) / (v_max - v_min)
+        else:
+            x_vec = np.zeros_like(x_vec)
+    else:
+        x_vec = np.zeros_like(x_vec)
         
     return x_vec
 
@@ -129,7 +136,8 @@ def evaluate_scenario(model, scenario_id: str, scenarios_dir: Path, out_dir: Pat
 
     # 1. Run the base NOA alignment
     # Note: alignNOA must return D_matrix
-    path_sec, D_matrix = alignNOA(Fq, Fref, return_D=True, hop_sec=(constants.DEFAULT_HOP_LENGTH / constants.DEFAULT_SR))
+    # path_sec, D_matrix = alignNOA(Fq, Fref, return_D=True, hop_sec=(constants.DEFAULT_HOP_LENGTH / constants.DEFAULT_SR))
+    _, D_matrix = alignNOA(Fq, Fref, return_D=True, hop_sec=(constants.DEFAULT_HOP_LENGTH / constants.DEFAULT_SR))
     
     # 2. Setup Ground Truth for scoring
     C_gt = cosine.cosine_dist_vec2vec(Fref, Fq)
@@ -138,31 +146,37 @@ def evaluate_scenario(model, scenario_id: str, scenarios_dir: Path, out_dir: Pat
 
     corrected_path = []
     errors = []
+    r_frame_corrected = 0
+    q_frame = 0
 
     # 3. Iterate through NOA path and let NN correct it
-    for col in range(path_sec.shape[1]):
-        q_frame = int(round(path_sec[0, col] / (constants.DEFAULT_HOP_LENGTH / constants.DEFAULT_SR)))
-        r_frame_noa = int(round(path_sec[1, col] / (constants.DEFAULT_HOP_LENGTH / constants.DEFAULT_SR)))
-
+    while q_frame < D_matrix.shape[0] and r_frame_corrected < D_matrix.shape[1]:
+        r_frame_corrected = int(np.clip(r_frame_corrected, 0, D_matrix.shape[1] - 1))
         # Get NN Input
-        x_vec = build_input_noa(D_matrix, q_frame, r_frame_noa, L)
+        x_vec = build_input_noa(D_matrix, q_frame, r_frame_corrected, L)
         x_tensor = torch.from_numpy(x_vec).float().unsqueeze(0)
         
         # NN Predicts relative offset within the window [0, 2L]
         logits = model(x_tensor)
+        # logger.info(f"logits: {logits}")
         pred_offset = int(torch.argmax(logits, dim=1).item())
         
         # Convert relative offset back to absolute reference frame
         # start_j was (r_frame_noa - L)
-        r_frame_corrected = (r_frame_noa - L) + pred_offset
+        r_frame_corrected = np.clip((r_frame_corrected - L) + pred_offset, 0, D_matrix.shape[1])
         
         corrected_path.append((q_frame, r_frame_corrected))
+
+        if q_frame % 5 == 0:
+            logger.info(f"q frame: {q_frame}, r_frame_corrected: {r_frame_corrected}, pred_offset: {pred_offset}")
 
         # 4. Scoring
         if q_frame in GT_dict:
             gt_r = GT_dict[q_frame]
             # Absolute error in frames
             errors.append(abs(r_frame_corrected - gt_r))
+        
+        q_frame += 1
 
     # 1. Convert corrected_path (indices) to seconds
     hop_sec = constants.DEFAULT_HOP_LENGTH / constants.DEFAULT_SR
