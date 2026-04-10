@@ -38,11 +38,18 @@ def data_collect_noa(scenario_path: str, s_id: str, L: int, root: str = "noa_nn"
         return
 
     # 1. Load and Extract Features (Same as before)
-    y_query, _ = lb.load(os.path.join(scenario_path, "query.wav"))
-    y_ref, _ = lb.load(os.path.join(scenario_path, "ref.wav"))
-
-    Fq = lb.feature.chroma_stft(y=y_query, hop_length=constants.DEFAULT_HOP_LENGTH, center=False, norm=2)
-    Fref = lb.feature.chroma_stft(y=y_ref, hop_length=constants.DEFAULT_HOP_LENGTH, center=False, norm=2)
+    pairs_file = os.path.join(scenario_path, "pair.txt")
+    with open(pairs_file) as f:
+        line = f.readline().strip()
+        if line: 
+            items = line.split()
+            if len(items) == 2:
+                query_id, ref_id = items[0], items[1]
+    
+    query_feature_file = f"features/chroma_stft_norm2/{query_id}.npy"
+    ref_feature_file = f"features/chroma_stft_norm2/{ref_id}.npy"
+    Fq = np.load(query_feature_file)
+    Fref = np.load(ref_feature_file)
 
     # 2. Get the NOA Path and Cumulative Cost Matrix D
     # Note: alignNOA returns time; we need the frame indices from your NOA implementation
@@ -52,9 +59,8 @@ def data_collect_noa(scenario_path: str, s_id: str, L: int, root: str = "noa_nn"
     path_sec, D_matrix = alignNOA(Fq, Fref, return_D=True, hop_sec=hop, ref_start_time=0)
     
     # 3. Get Ground Truth (Same as your snippet)
-    C_gt = cosine.cosine_dist_vec2vec(Fref, Fq)
-    _, wp = lb.sequence.dtw(C=C_gt, step_sizes_sigma=DEFAULT_DTW_STEPS, weights_mul=DEFAULT_DTW_WEIGHTS, backtrack=True)
-    GT_dict = {q: r for r, q in wp[::-1]}
+    wp = np.load(f"experiments/DTW/{s_id}/hyp.npy") / hop
+    GT_dict = {entry[0]: entry[1] for entry in wp.T}
 
     X, y = [], []
 
@@ -66,43 +72,46 @@ def data_collect_noa(scenario_path: str, s_id: str, L: int, root: str = "noa_nn"
         q_frame = int(round(path_sec[0, col] / hop))
         r_frame = int(round(path_sec[1, col] / hop))
 
-        if augment:
-            # Randomly shift between -max_offset and +max_offset
-            jitter = np.random.randint(-offset, offset + 1)
-            r_frame = r_frame + jitter
-        else:
-            r_frame = r_frame
+        r_frame_aug = []
+        if not augment:
+            offset = 0
 
-        if q_frame not in GT_dict:
-            continue
+        for i in [-100, -50, -10, -5, 0, 5, 10, 50, 100]:
+        # Randomly shift between -max_offset and +max_offset
+            if r_frame + i >= 0 and r_frame + i <= Fref.shape[1]:
+                r_frame_aug.append(r_frame + i)
             
-        start_j = r_frame - L
-        end_j = r_frame + L
-        
-        # Boundary handling with padding
-        if start_j < 0 or end_j >= D_matrix.shape[1]:
-            valid_start = max(0, start_j)
-            valid_end = min(D_matrix.shape[1] - 1, end_j)
-            raw_slice = D_matrix[q_frame, valid_start : valid_end + 1]
-            x_vec = np.pad(raw_slice, (max(0, -start_j), max(0, end_j - (D_matrix.shape[1]-1))), constant_values=np.inf)
-        else:
-            x_vec = D_matrix[q_frame, start_j : end_j + 1]
+        for r_frame in r_frame_aug:
+            if q_frame not in GT_dict:
+                continue
+                
+            start_j = r_frame - L
+            end_j = r_frame + L
+            
+            # Boundary handling with padding
+            if start_j < 0 or end_j >= D_matrix.shape[1]:
+                valid_start = max(0, start_j)
+                valid_end = min(D_matrix.shape[1] - 1, end_j)
+                raw_slice = D_matrix[q_frame, valid_start : valid_end + 1]
+                x_vec = np.pad(raw_slice, (max(0, -start_j), max(0, end_j - (D_matrix.shape[1]-1))), constant_values=np.inf)
+            else:
+                x_vec = D_matrix[q_frame, start_j : end_j + 1]
 
-        # --- CRUCIAL: Pre-process x_vec for NN ---
-        mask = np.isinf(x_vec)
-        if np.all(mask): continue
-        
-        # Replace inf and apply local min-max scaling
-        x_vec[mask] = np.max(x_vec[~mask]) * 1.1
-        v_min, v_max = x_vec.min(), x_vec.max()
-        x_vec = (x_vec - v_min) / (v_max - v_min) if v_max > v_min else np.zeros_like(x_vec)
+            # --- CRUCIAL: Pre-process x_vec for NN ---
+            mask = np.isinf(x_vec)
+            if np.all(mask): continue
+            
+            # Replace inf and apply local min-max scaling
+            x_vec[mask] = np.max(x_vec[~mask]) * 1.1
+            v_min, v_max = x_vec.min(), x_vec.max()
+            x_vec = (x_vec - v_min) / (v_max - v_min) if v_max > v_min else np.zeros_like(x_vec)
 
-        # Labeling
-        gt_ref = GT_dict[q_frame]
-        if start_j <= gt_ref <= end_j:
-            label = gt_ref - start_j
-            X.append(x_vec)
-            y.append(label)
+            # Labeling
+            gt_ref = GT_dict[q_frame]
+            if start_j <= gt_ref <= end_j:
+                label = gt_ref - start_j
+                X.append(x_vec)
+                y.append(label)
     
     os.makedirs(os.path.join(root, "X", s_id), exist_ok=True)
     os.makedirs(os.path.join(root, "y", s_id), exist_ok=True)
@@ -111,7 +120,6 @@ def data_collect_noa(scenario_path: str, s_id: str, L: int, root: str = "noa_nn"
     
     np.save(save_path_X, X)
     np.save(save_path_y, y)
-    
 
 def preprocess_once(scenario_root: str, L: int, root: str = "noa_nn", force: bool = False, augment: bool = True, offset: int = 20) -> None:
     """Prepare per-scenario features once; skips scenarios that already have cached outputs."""
@@ -435,7 +443,7 @@ def main():
     parser.add_argument(
         "--augment-offset",
         type=int,
-        default=20,
+        default=100,
         help="Maximum frame offset for random jitter augmentation (e.g., 20 means +/- 20 frames).",
     )
     args = parser.parse_args()

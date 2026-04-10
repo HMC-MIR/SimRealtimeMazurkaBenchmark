@@ -93,17 +93,17 @@ def build_input_noa(D_matrix, q_idx, r_idx, L):
     else:
         x_vec = D_matrix[q_idx, start_j : end_j + 1]
 
-    # Pre-process same as training
-    mask = np.isinf(x_vec)
-    if not np.all(mask):
-        x_vec[mask] = np.max(x_vec[~mask]) * 1.1
-        v_min, v_max = x_vec.min(), x_vec.max()
-        if v_max > v_min:
-            x_vec = (x_vec - v_min) / (v_max - v_min)
-        else:
-            x_vec = np.zeros_like(x_vec)
-    else:
-        x_vec = np.zeros_like(x_vec)
+    # # Pre-process same as training
+    # mask = np.isinf(x_vec)
+    # if not np.all(mask):
+    #     x_vec[mask] = np.max(x_vec[~mask]) * 1.1
+    #     v_min, v_max = x_vec.min(), x_vec.max()
+    #     if v_max > v_min:
+    #         x_vec = (x_vec - v_min) / (v_max - v_min)
+    #     else:
+    #         x_vec = np.zeros_like(x_vec)
+    # else:
+    #     x_vec = np.zeros_like(x_vec)
         
     return x_vec
 
