@@ -16,10 +16,8 @@ from online_alignment.cost import cosine
 
 
 class SimpleDenseNet(nn.Module):
-    def __init__(self, input_dim, hidden_dim=256, num_classes=None):
+    def __init__(self, input_dim, hidden_dim=512, output_dim=1):
         super().__init__()
-        if num_classes is None:
-            num_classes = input_dim
 
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -28,7 +26,7 @@ class SimpleDenseNet(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(hidden_dim, num_classes),
+            nn.Linear(hidden_dim, output_dim),
         )
 
     def forward(self, x):
@@ -156,19 +154,21 @@ def evaluate_scenario(model, scenario_id: str, scenarios_dir: Path, out_dir: Pat
         x_vec = build_input_noa(D_matrix, q_frame, r_frame_corrected, L)
         x_tensor = torch.from_numpy(x_vec).float().unsqueeze(0)
         
-        # NN Predicts relative offset within the window [0, 2L]
-        logits = model(x_tensor)
-        # logger.info(f"logits: {logits}")
-        pred_offset = int(torch.argmax(logits, dim=1).item())
+        # NN predicts a scalar relative offset; round and clamp to [0, 2L].
+        pred_offset_raw = model(x_tensor).squeeze(1).item()
+        pred_offset = int(np.clip(np.rint(pred_offset_raw), 0, 2 * L))
         
         # Convert relative offset back to absolute reference frame
         # start_j was (r_frame_noa - L)
-        r_frame_corrected = np.clip((r_frame_corrected - L) + pred_offset, 0, D_matrix.shape[1])
+        r_frame_corrected = int(np.clip((r_frame_corrected - L) + pred_offset, 0, D_matrix.shape[1] - 1))
         
         corrected_path.append((q_frame, r_frame_corrected))
 
-        if q_frame % 5 == 0:
-            logger.info(f"q frame: {q_frame}, r_frame_corrected: {r_frame_corrected}, pred_offset: {pred_offset}")
+        if q_frame % 50 == 0:
+            logger.info(
+                f"q frame: {q_frame}, r_frame_corrected: {r_frame_corrected}, "
+                f"pred_offset(raw/rounded): {pred_offset_raw:.3f}/{pred_offset}"
+            )
 
         # 4. Scoring
         if q_frame in GT_dict:
@@ -260,7 +260,7 @@ def main():
     parser.add_argument("--scenario", nargs="*", default=None, help="e.g. --scenario s1 s2")
     parser.add_argument("--split-file", default="noa_nn/train_test_split.txt")
     parser.add_argument("--L", type=int, default=100)
-    parser.add_argument("--hidden-dim", type=int, default=256)
+    parser.add_argument("--hidden-dim", type=int, default=512)
     parser.add_argument("--log-file", default=None)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
@@ -282,7 +282,7 @@ def main():
     model = SimpleDenseNet(
         input_dim=input_dim,
         hidden_dim=args.hidden_dim,
-        num_classes=input_dim,
+        output_dim=1,
     )
     state = torch.load(args.model_path, map_location="cpu")
     model.load_state_dict(state)

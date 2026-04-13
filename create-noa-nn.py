@@ -22,6 +22,19 @@ from noa import alignNOA
 
 logger = logging.getLogger(__name__)
 
+
+def resolve_training_device(device: str) -> torch.device:
+    """Map CLI/device string to torch.device; fall back safely when CUDA is unavailable."""
+    if device == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            logger.warning("CUDA requested but not available; training on CPU.")
+            return torch.device("cpu")
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
 def data_collect_noa(scenario_path: str, s_id: str, L: int, root: str = "noa_nn", force: bool = False, augment: bool = True, offset: int = 20) -> None:
     if augment:
         save_path_X = os.path.join(root, "X_aug", s_id, "X.npy")
@@ -76,8 +89,7 @@ def data_collect_noa(scenario_path: str, s_id: str, L: int, root: str = "noa_nn"
         if not augment:
             offset = 0
 
-        for i in [-100, -50, -10, -5, 0, 5, 10, 50, 100]:
-        # Randomly shift between -max_offset and +max_offset
+        for i in range(-offset, offset + 1):
             if r_frame + i >= 0 and r_frame + i <= Fref.shape[1]:
                 r_frame_aug.append(r_frame + i)
             
@@ -130,10 +142,8 @@ def preprocess_once(scenario_root: str, L: int, root: str = "noa_nn", force: boo
 
 
 class SimpleDenseNet(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int = 256, num_classes: int = None):
+    def __init__(self, input_dim: int, hidden_dim: int = 256, output_dim: int = 1):
         super().__init__()
-        if num_classes is None:
-            num_classes = input_dim
 
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -142,7 +152,7 @@ class SimpleDenseNet(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(hidden_dim, num_classes),
+            nn.Linear(hidden_dim, output_dim),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -189,7 +199,7 @@ def load_dataset(root: str = "noa_nn", augment: bool = False):
         scenario_ids.extend([s_id] * len(y_i))
 
     X = np.concatenate(all_X, axis=0).astype(np.float32)
-    y = np.concatenate(all_y, axis=0).astype(np.int64)
+    y = np.concatenate(all_y, axis=0).astype(np.float32)
 
     logger.info("X shape: %s", X.shape)
     logger.info("y shape: %s", y.shape)
@@ -222,9 +232,13 @@ def train_model(
     patience: int = 10,
     train_ratio: float = 0.8,
     seed: int = 42,
+    device: str = "auto",
 ):
+    dev = resolve_training_device(device)
+    logger.info("Training device: %s", dev)
+
     X_tensor = torch.tensor(X, dtype=torch.float32)
-    y_tensor = torch.tensor(y, dtype=torch.long)
+    y_tensor = torch.tensor(y, dtype=torch.float32)
 
     if not (0.0 < train_ratio < 1.0):
         raise ValueError("train_ratio must be between 0 and 1 (exclusive).")
@@ -268,19 +282,22 @@ def train_model(
         len(test_indices),
     )
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    pin_memory = dev.type == "cuda"
+    train_loader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, pin_memory=pin_memory
+    )
+    test_loader = DataLoader(
+        test_dataset, batch_size=batch_size, shuffle=False, pin_memory=pin_memory
+    )
 
     input_dim = 2 * L + 1
-    num_classes = 2 * L + 1
-
-    model = SimpleDenseNet(input_dim=input_dim, hidden_dim=hidden_dim, num_classes=num_classes)
-    criterion = nn.CrossEntropyLoss()
+    model = SimpleDenseNet(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=1).to(dev)
+    criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     train_losses = []
     test_losses = []
-    test_accs = []
+    test_maes = []
     best_test_loss = float("inf")
     best_state_dict = None
     epochs_no_improve = 0
@@ -290,9 +307,11 @@ def train_model(
         train_loss = 0.0
 
         for xb, yb in train_loader:
+            xb = xb.to(dev, non_blocking=pin_memory)
+            yb = yb.to(dev, non_blocking=pin_memory)
             optimizer.zero_grad()
-            logits = model(xb)
-            loss = criterion(logits, yb)
+            preds = model(xb).squeeze(1)
+            loss = criterion(preds, yb)
             loss.backward()
             optimizer.step()
             train_loss += loss.item() * xb.size(0)
@@ -302,29 +321,29 @@ def train_model(
 
         model.eval()
         test_loss = 0.0
-        correct = 0
+        test_abs_error = 0.0
 
         with torch.no_grad():
             for xb, yb in test_loader:
-                logits = model(xb)
-                loss = criterion(logits, yb)
+                xb = xb.to(dev, non_blocking=pin_memory)
+                yb = yb.to(dev, non_blocking=pin_memory)
+                preds = model(xb).squeeze(1)
+                loss = criterion(preds, yb)
                 test_loss += loss.item() * xb.size(0)
-
-                preds = torch.argmax(logits, dim=1)
-                correct += (preds == yb).sum().item()
+                test_abs_error += torch.abs(preds - yb).sum().item()
 
         test_loss /= len(test_loader.dataset)
-        test_acc = correct / len(test_loader.dataset)
+        test_mae = test_abs_error / len(test_loader.dataset)
 
         test_losses.append(test_loss)
-        test_accs.append(test_acc)
+        test_maes.append(test_mae)
 
         logger.info(
-            "Epoch %d: train_loss=%.4f, test_loss=%.4f, test_acc=%.4f",
+            "Epoch %d: train_loss=%.4f, test_loss=%.4f, test_mae=%.4f",
             epoch + 1,
             train_loss,
             test_loss,
-            test_acc,
+            test_mae,
         )
 
         if test_loss < best_test_loss:
@@ -347,7 +366,7 @@ def train_model(
         model.load_state_dict(best_state_dict)
         logger.info("Restored best model weights with test_loss=%.4f", best_test_loss)
 
-    return model, X_tensor, y_tensor, train_losses, test_losses, test_accs, train_scenarios_arr, test_scenarios_arr
+    return model, X_tensor, y_tensor, train_losses, test_losses, test_maes, train_scenarios_arr, test_scenarios_arr
 
 
 def save_split_txt(
@@ -405,6 +424,13 @@ def main():
         help="Fraction of scenarios used for training (e.g., 0.6 => 60/40 train/test).",
     )
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        choices=["auto", "cuda", "cpu"],
+        help="Training device: auto (CUDA if available), cuda, or cpu.",
+    )
     parser.add_argument(
         "--log-level",
         type=str,
@@ -492,6 +518,7 @@ def main():
         patience=args.patience,
         train_ratio=args.train_ratio,
         seed=args.seed,
+        device=args.device,
     )
 
     save_split_txt(
