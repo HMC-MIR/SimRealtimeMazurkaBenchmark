@@ -234,3 +234,6 @@ noa_nn/
 scenarios_test/
 experiments_test/
 eval_test/
+scenarios_example/
+experiments_example/
+eval_example/
