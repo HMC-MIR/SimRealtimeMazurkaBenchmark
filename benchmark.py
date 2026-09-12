@@ -402,7 +402,18 @@ def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
                 "DTW_weights": [1, 1, 1],
                 "window_steps": [[1, 1], [1, 0], [0, 1]]
             }
-    
+        elif system.startswith('MM_'):
+            configs[system] = {
+                "method": 'arzt' if system.startswith('MM_ARZT') else 'dixon',
+                "feat_dir": f"{FEAT_DIR}/chroma_stft_norm2",
+                "sr": constants.DEFAULT_SR,
+                "hop_length": constants.DEFAULT_HOP_LENGTH,
+                "distance_metric": "cosine",
+                "window_size": 10
+            }
+            if system.startswith('MM_ARZT'):
+                configs[system]["step_size"] = 3
+
     return configs
 
 

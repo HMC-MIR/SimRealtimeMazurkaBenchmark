@@ -25,11 +25,13 @@ def verify_matchmaker_installation(python_path=None):
             if os.path.exists(candidate):
                 python_path = candidate
 
-    assert python_path is not None and os.path.exists(python_path), (
-        f'Could not locate the {DEFAULT_ENV_NAME} environment. '
-        'Set MATCHMAKER_PYTHON to its python interpreter.'
-    )
-    assert os.path.exists(WORKER_PATH), f'Worker script not found at {WORKER_PATH}'
+    if python_path is None or not os.path.exists(python_path):
+        raise RuntimeError(
+            f'Could not locate the {DEFAULT_ENV_NAME} environment. '
+            'Set MATCHMAKER_PYTHON to its python interpreter.'
+        )
+    if not os.path.exists(WORKER_PATH):
+        raise RuntimeError(f'Worker script not found at {WORKER_PATH}')
 
     return python_path
 

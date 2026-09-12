@@ -34,6 +34,28 @@ def verify_version():
     return version
 
 
+def reduce_to_query_time(wp):
+    """
+    Collapses an alignment path to one reference estimate per query time, in increasing order.
+
+    Dixon records the frontier argmin at each step, which is recomputed over the whole
+    band and can move backwards in both axes, so its raw path is not a function of query
+    time. eval_tools feeds row 0 to np.interp, which silently returns nonsense unless it
+    is increasing. This mirrors matchmaker's own transfer_positions: order by query time
+    and keep the tracker's last decision for each one. Arzt is already strictly
+    increasing, so this is a no-op for it.
+
+    Inputs
+    wp: a 2xN array, row 0 query seconds, row 1 reference seconds
+
+    Returns a 2xM array with strictly increasing query times.
+    """
+    order = np.argsort(wp[0], kind='stable')
+    query, reference = wp[0][order], wp[1][order]
+    last_of_run = np.append(np.diff(query) > 0, True)
+    return np.vstack((query[last_of_run], reference[last_of_run]))
+
+
 def align(ref_feat, query_feat, method, frame_rate, window_size, step_size, distance_metric):
     """
     Aligns query features against reference features using a MatchMaker OLTW follower.
@@ -79,6 +101,10 @@ def align(ref_feat, query_feat, method, frame_rate, window_size, step_size, dist
     query_dur = (query.shape[0] - 1) / frame_rate
     if wp.shape[1] > 0 and wp[0].max() > query_dur + 1.0:
         raise RuntimeError('Query times exceed the query duration; check the alignment_path row order.')
+
+    wp = reduce_to_query_time(wp) if wp.shape[1] else wp
+    if wp.shape[1] > 1 and np.any(np.diff(wp[0]) <= 0):
+        raise RuntimeError('Query times are not strictly increasing; np.interp would be invalid.')
 
     return wp
 
