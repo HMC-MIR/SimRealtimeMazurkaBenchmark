@@ -77,7 +77,18 @@ def update_alignment_row_numba_norm(i, costs, D, B, dn, dm, dw, ref_length):
 
     return best_j
 
-def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshape((-1,2)), weights = np.array([1,1,2]), cost_metric = compute_cosine_distance, ref_start_time = 0, return_D = False, hop_sec = 512 / 22050, monotonic = False):
+def alignNOA(
+    F1,
+    F2,
+    outfile=None,
+    steps=np.array([1, 1, 1, 2, 2, 1]).reshape((-1, 2)),
+    weights=np.array([1, 1, 2]),
+    cost_metric=compute_cosine_distance,
+    ref_start_time=0,
+    return_D=False,
+    hop_sec=512 / 22050,
+    monotonic=False,
+):
     """
     Align two feature matrices using NOA
     Inputs:
@@ -92,32 +103,36 @@ def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshap
     Outputs:
         path: warping path of shape (2, n_frames) where the first row is the indices of F1 and the second row is the indices of F2
     """
-    
-    path = [[0,0]] # initialize path from origin
+
+    path = [[0, 0]]  # initialize path from origin
     F2 = F2[:, int(ref_start_time / hop_sec):]
     ref_length = F2.shape[1]
     dn, dm = steps[:, 0], steps[:, 1]
-    
+
     # initalize matrices
     max_query_length = 2 * ref_length
     D = np.full((max_query_length, ref_length), np.inf, dtype=np.float32)
-    D[0,0] = 0.0  # Set the starting point cost to zero
+    D[0, 0] = 0.0  # Set the starting point cost to zero
     B = np.full((max_query_length, ref_length), -1, dtype=np.int32)
-    
+
+    last_i = 0
     for i in range(1, F1.shape[1]):
         if path[-1][1] >= ref_length - 1:
             break
-        
+
         costs = cost_metric(F1[:, i], F2)
         best_j = update_alignment_row_numba_norm(
             i, costs, D, B, dn, dm, weights, ref_length
         )
-        
+
         if monotonic:
             best_j = max(best_j, path[-1][1])
-        
+
         path.append([i, best_j])
-        
+        last_i = i
+
+    # Chop D (and B if desired) to the part actually used during alignment
+    D_chopped = D[: last_i + 1, :]
     # convert path to numpy array
     path = np.array(path, dtype=np.float32).T
 
@@ -127,12 +142,12 @@ def alignNOA(F1, F2, outfile = None, steps = np.array([1, 1, 1, 2, 2, 1]).reshap
 
     # add ref_start_time to path
     path[1, :] += ref_start_time
-    
+
     if outfile:
-        pickle.dump(path, open(outfile, 'wb'))
-        
+        pickle.dump(path, open(outfile, "wb"))
+
     if return_D:
-        return path, D
+        return path, D_chopped
     else:
         return path
 

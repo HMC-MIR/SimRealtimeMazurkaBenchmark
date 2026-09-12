@@ -231,3 +231,6 @@ logs/
 # models
 dense_nn/
 noa_nn/
+scenarios_test/
+experiments_test/
+eval_test/

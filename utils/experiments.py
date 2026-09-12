@@ -93,9 +93,9 @@ class ExperimentRunner:
         os.makedirs(out_path, exist_ok=True)
         
         # run experiment
-        if self.exp_type == "DTW":
+        if self.exp_type == "DTW" or self.exp_type.startswith("DTW"):
             self.run_dtw(scenarios_dir, out_path)
-        elif self.exp_type == "NOA" or self.exp_type == "NOA_MONOTONIC":
+        elif self.exp_type in ("NOA", "NOA_MONOTONIC") or self.exp_type.startswith("NOA"):
             self.run_noa(scenarios_dir, out_path)
         elif self.exp_type == "MATCH":
             self.run_match(scenarios_dir, out_path)
@@ -179,7 +179,7 @@ class ExperimentRunner:
         # run NOA
         norm = self.kwargs['norm']
         monotonic = self.kwargs['monotonic']
-        wp = run_offline_noa(reference_feat, query_feat, cost_metric = self.kwargs['distance_metric'], monotonic = monotonic, normalize = norm)
+        wp = run_offline_noa(reference_feat, query_feat, steps = self.kwargs['steps'], weights = self.kwargs['weights'], cost_metric = self.kwargs['distance_metric'], monotonic = monotonic, normalize = norm)
         
         # convert to seconds
         hop_sec = self.kwargs['hop_length'] / self.kwargs['sr']

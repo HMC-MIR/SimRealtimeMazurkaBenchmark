@@ -16,7 +16,7 @@
     ],
     "weights": [
       1,
-      1,
+      2,
       2
     ],
     "feat_dir": "features/chroma_stft_norm2",
@@ -41,7 +41,7 @@
     ],
     "weights": [
       1,
-      1,
+      2,
       2
     ],
     "feat_dir": "features/chroma_stft_norm2",
@@ -68,7 +68,7 @@
     ],
     "weights": [
       1,
-      1,
+      2,
       2
     ],
     "feat_dir": "features/chroma_stft_norm2",
@@ -120,5 +120,280 @@
         1
       ]
     ]
+  },
+  "OLTW_OURS": {
+    "hop_length": 512,
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "distance_metric": "cosine",
+    "c": 500,
+    "DTW_steps": [
+      [
+        1,
+        0
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        1
+      ]
+    ],
+    "DTW_weights": [
+      1,
+      1,
+      1
+    ],
+    "window_steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        0
+      ],
+      [
+        0,
+        1
+      ]
+    ]
+  },
+  "NOA1": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      2,
+      3,
+      3
+    ],
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "norm": true,
+    "distance_metric": "cosine",
+    "monotonic": false
+  },
+  "NOA2": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      1.5,
+      3,
+      3
+    ],
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "norm": true,
+    "distance_metric": "cosine",
+    "monotonic": false
+  },
+  "NOA3": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      1,
+      3,
+      3
+    ],
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "norm": true,
+    "distance_metric": "cosine",
+    "monotonic": false
+  },
+  "NOA4": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      0.75,
+      3,
+      3
+    ],
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "norm": true,
+    "distance_metric": "cosine",
+    "monotonic": false
+  },
+  "NOA5": {
+    "steps": [
+      [
+        1,
+        0
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        1
+      ]
+    ],
+    "weights": [
+      1,
+      1,
+      1
+    ],
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "norm": true,
+    "distance_metric": "cosine",
+    "monotonic": false
+  },
+  "DTW1": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      2,
+      3,
+      3
+    ],
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "distance_metric": "cosine"
+  },
+  "DTW2": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      1.5,
+      3,
+      3
+    ],
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "distance_metric": "cosine"
+  },
+  "DTW3": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      1,
+      3,
+      3
+    ],
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "distance_metric": "cosine"
+  },
+  "DTW4": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      0.75,
+      3,
+      3
+    ],
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "distance_metric": "cosine"
   }
 }
