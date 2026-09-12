@@ -395,5 +395,22 @@
     "sr": 22050,
     "hop_length": 512,
     "distance_metric": "cosine"
+  },
+  "MM_DIXON": {
+    "method": "dixon",
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "distance_metric": "cosine",
+    "window_size": 10
+  },
+  "MM_ARZT": {
+    "method": "arzt",
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "distance_metric": "cosine",
+    "window_size": 10,
+    "step_size": 3
   }
 }

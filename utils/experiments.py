@@ -11,6 +11,7 @@ import pandas as pd
 
 from noa import compute_cosine_distance, compute_euclidean_distance
 from utils.oltw import online_processing
+from utils.matchmaker_baseline import run_matchmaker_alignment
 from online_alignment import run_offline_oltw, run_offline_noa
 
 @jit(nopython=True, parallel=True)
@@ -84,8 +85,8 @@ class ExperimentRunner:
         scenario_id = scenarios_dir.split("/")[-1] # e.g. s1
         out_path = f"{out_dir}/{self.exp_type}/{scenario_id}" # e.g. experiments/DTW/s1
         
-        # check if out_path exists. if so, skip
-        if os.path.exists(out_path):
+        # check if the result already exists. if so, skip
+        if os.path.exists(f"{out_path}/hyp.npy"):
             print(f"Skipping {out_path} because it already exists")
             return
         
@@ -101,6 +102,8 @@ class ExperimentRunner:
             self.run_match(scenarios_dir, out_path)
         elif self.exp_type == "OLTW":
             self.run_oltw(scenarios_dir, out_path)
+        elif self.exp_type.startswith("MM_"):
+            self.run_matchmaker(scenarios_dir, out_path)
         elif "OLTW_" in self.exp_type:
             self.run_oltw_global(scenarios_dir, out_path)
         else:
@@ -213,6 +216,30 @@ class ExperimentRunner:
         # store result
         np.save(os.path.join(out_path, "hyp.npy"), wp_sec)
         
+    def run_matchmaker(self, scenarios_dir, out_path):
+        """
+        Runs a MatchMaker OLTW baseline for the given scenario and stores results to output path.
+        """
+        # generate out_path
+        os.makedirs(out_path, exist_ok=True)
+
+        # load query and reference
+        with open(os.path.join(scenarios_dir, "pair.txt"), "r") as f:
+            query, reference = f.read().split()
+
+        # run MatchMaker in its own environment, which writes the alignment directly
+        run_matchmaker_alignment(
+            ref_feat_path=f"{self.kwargs['feat_dir']}/{reference}.npy",
+            query_feat_path=f"{self.kwargs['feat_dir']}/{query}.npy",
+            out_file=os.path.join(out_path, "hyp.npy"),
+            method=self.kwargs['method'],
+            sr=self.kwargs['sr'],
+            hop_length=self.kwargs['hop_length'],
+            window_size=self.kwargs['window_size'],
+            distance_metric=self.kwargs['distance_metric'],
+            step_size=self.kwargs.get('step_size'),
+        )
+
     def run_match(self, scenarios_dir, out_path):
         """
         Runs MATCH experiment for the given scenario and stores results to output path.

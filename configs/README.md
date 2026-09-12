@@ -12,6 +12,7 @@ Default configurations for all supported systems:
 - **MATCH**: MATCH algorithm (requires Java)
 - **OLTW**: Online Time Warping (using Java implementation)
 - **OLTW_GLOBAL**: Global OLTW (custom Python implementation)
+- **MM_DIXON**, **MM_ARZT**: MatchMaker OLTW baselines (requires the `matchmaker` conda env)
 
 ### `oltw_global_examples.json`
 Example OLTW_GLOBAL configurations with different parameter settings (A-F) as described in notebook 02.
@@ -78,6 +79,14 @@ python benchmark.py experiment --benchmark train_small \
 ### DTW/NOA Parameters
 - `steps`: DTW step pattern as 2D array [[x1,y1], [x2,y2], ...]
 - `weights`: Step weights
+
+### MatchMaker Parameters
+- `method`: `dixon` or `arzt`
+- `window_size`: search window in seconds
+- `step_size`: max reference frames advanced per query frame (`arzt` only)
+
+These run in a separate conda env because pymatchmaker pins numpy<2. The env is found
+via `$MATCHMAKER_PYTHON`, or as a sibling env named `matchmaker` of the active one.
 
 ### OLTW_GLOBAL Parameters
 - `c`: Constraint window (null for global alignment)
