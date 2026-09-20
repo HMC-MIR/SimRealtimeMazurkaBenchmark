@@ -28,6 +28,7 @@ from pathlib import Path
 
 import librosa as lb
 import numpy as np
+from scipy import signal
 
 from scripts.vienna4x22.match_io import load_match
 
@@ -57,17 +58,35 @@ def best_lag_seconds(audio_env: np.ndarray, match_env: np.ndarray) -> tuple:
     """
     Find the lag that best aligns two envelopes.
 
-    Returns (lag_seconds, peak_sharpness), where a positive lag means the audio
-    lags the match file, i.e. the match times need that much added. Sharpness is
-    the peak correlation over the median correlation across the searched lags; a
-    flat, ambiguous correlation scores near 1.
+    Zero-padded cross-correlation rather than a circular one: at these lags a
+    circular shift would wrap several seconds of one envelope around to the
+    other end, which is exactly the kind of contamination that would bias the
+    measurement this script exists to make.
+
+    Args:
+        audio_env: onset strength computed from the recording
+        match_env: onset impulses built from the match file
+
+    Returns:
+        (lag_seconds, sharpness). A positive lag means the audio lags the match
+        file, i.e. match times need that much added. Sharpness is the peak
+        correlation over the median absolute correlation across searched lags;
+        a flat, ambiguous correlation scores near 1.
     """
-    a = (audio_env - audio_env.mean()) / (audio_env.std() + 1e-9)
-    m = (match_env - match_env.mean()) / (match_env.std() + 1e-9)
+    n = min(len(audio_env), len(match_env))
+    a = audio_env[:n].astype(float)
+    m = match_env[:n].astype(float)
+    a = (a - a.mean()) / (a.std() + 1e-9)
+    m = (m - m.mean()) / (m.std() + 1e-9)
+
+    scores = signal.correlate(a, m, mode='full', method='fft')
+    # Index k of a 'full' correlation corresponds to shifting m forward by
+    # k - (n - 1) samples.
+    all_lags = np.arange(len(scores)) - (n - 1)
 
     max_lag = int(round(MAX_LAG_SEC * SR / HOP))
-    lags = np.arange(-max_lag, max_lag + 1)
-    scores = np.array([np.dot(np.roll(m, lag), a) for lag in lags])
+    searched = np.abs(all_lags) <= max_lag
+    scores, lags = scores[searched], all_lags[searched]
 
     peak = int(np.argmax(scores))
     sharpness = scores[peak] / (np.median(np.abs(scores)) + 1e-9)
@@ -85,7 +104,11 @@ def main():
 
     by_piece = defaultdict(list)
     for match_file in sorted(args.match_dir.glob('*.match')):
-        piece, performer = re.match(r'(.+)_(p\d\d)$', match_file.stem).groups()
+        name = re.match(r'(.+)_(p\d\d)$', match_file.stem)
+        if not name:
+            print(f"  skipping {match_file.name}: not a <piece>_p<NN> match file")
+            continue
+        piece, performer = name.groups()
         by_piece[piece].append((performer, match_file))
 
     all_offsets = []

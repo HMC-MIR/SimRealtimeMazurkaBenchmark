@@ -55,8 +55,6 @@ BENCHMARK_CONFIGS = {
     },
 }
 
-FEAT_DIR = "features"
-
 
 def get_corpus(config: Dict[str, Any]) -> corpora.Corpus:
     """Resolve the corpus a benchmark config refers to."""

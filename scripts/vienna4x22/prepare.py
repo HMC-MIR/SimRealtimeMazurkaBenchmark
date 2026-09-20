@@ -25,6 +25,7 @@ reports offsets, pass them back in with --offsets.
 """
 
 import argparse
+import dataclasses
 import json
 import re
 import subprocess
@@ -79,7 +80,13 @@ def main():
 
     by_piece = defaultdict(dict)
     for match_file in sorted(args.match_dir.glob('*.match')):
-        piece, performer = re.match(r'(.+)_(p\d\d)$', match_file.stem).groups()
+        # Upstream names every performance <piece>_p<NN>. Anything else is not
+        # one of the 88, so say which file was skipped rather than raising.
+        name = re.match(r'(.+)_(p\d\d)$', match_file.stem)
+        if not name:
+            print(f"  skipping {match_file.name}: not a <piece>_p<NN> match file")
+            continue
+        piece, performer = name.groups()
         by_piece[piece][performer] = match_file
 
     total_annotated = total_transcoded = total_missing = 0
@@ -90,9 +97,8 @@ def main():
             performance = load_match(match_file)
             shift = offsets.get(match_file.stem, 0.0)
             if shift:
-                performance = type(performance)(
-                    piece=performance.piece,
-                    performer=performance.performer,
+                performance = dataclasses.replace(
+                    performance,
                     onsets={b: [t + shift for t in ts] for b, ts in performance.onsets.items()},
                 )
             performances[performer] = performance
@@ -113,11 +119,21 @@ def main():
         unplayed = len(everywhere) - len(candidates)
         rolled = len(candidates) - len(score_onsets)
 
+        if not score_onsets:
+            print(f"{piece:24s} no score position is shared by all {len(performances)} performances "
+                  f"within --max-spread {args.max_spread:g}s; skipped")
+            continue
+
+        times_by_performer = {
+            performer: beat_times(performance, score_onsets)
+            for performer, performance in sorted(performances.items())
+        }
+
         for performer, performance in sorted(performances.items()):
             piece_id = f"{piece}/{performer}"
             stem = f"{piece}_{performer}"
 
-            times = beat_times(performance, score_onsets)
+            times = times_by_performer[performer]
             write_beat_file(
                 Path(corpus.annot_path(piece_id)),
                 times,
@@ -143,7 +159,7 @@ def main():
                 transcode(audio_files[stem], dst, DEFAULT_SR)
                 total_transcoded += 1
 
-        spans = [beat_times(p, score_onsets)[-1] - beat_times(p, score_onsets)[0] for p in performances.values()]
+        spans = [t[-1] - t[0] for t in times_by_performer.values()]
         print(f"{piece:24s} {len(performances):2d} performances, {len(score_onsets):3d} annotated positions "
               f"({unplayed} not played everywhere, {rolled} rolled), {min(spans):.0f}-{max(spans):.0f}s")
 

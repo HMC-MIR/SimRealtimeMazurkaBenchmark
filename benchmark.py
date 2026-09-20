@@ -233,6 +233,17 @@ def resolve_dataset(config: Dict[str, Any], logger: logging.Logger) -> Tuple[cor
 
     if 'piece_roots' in config:
         piece_ids, pairs_list = corpora.build_dataset(corpus, config['piece_roots'], logger)
+        if not piece_ids:
+            # cfg/ holds the checked-in record of which recordings a benchmark
+            # covers. Writing an empty enumeration over it would silently
+            # discard that, and an absent corpus is the usual reason to get
+            # here, so stop before saving rather than after.
+            logger.error(
+                f"No recordings found under {corpus.audio_root}/ for benchmark pieces "
+                f"{', '.join(config['piece_roots'])}. Leaving {config['train_file']} and "
+                f"{config['pair_file']} untouched; see the README for how to obtain the corpus."
+            )
+            sys.exit(1)
         save_cfg_files(piece_ids, pairs_list, config, logger)
         return corpus, piece_ids, pairs_list
 

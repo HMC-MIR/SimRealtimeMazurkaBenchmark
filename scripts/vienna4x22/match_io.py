@@ -16,7 +16,7 @@ info(midiClockRate) lines convert it to seconds.
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
@@ -39,7 +39,8 @@ class Performance:
         return sorted(self.onsets)
 
 
-def _parse_info(line: str) -> Optional[Tuple[str, str]]:
+def _parse_info(line: str) -> Tuple[str, str]:
+    """Split an info(key,value). line into its key and value."""
     body = line[len("info(") : line.rindex(")")]
     key, _, value = body.partition(",")
     return key, value
