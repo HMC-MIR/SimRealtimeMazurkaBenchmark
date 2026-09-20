@@ -15,7 +15,34 @@ import shutil
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
+
+
+def _limit_worker_threads():
+    """
+    Caps the BLAS/numba thread pools to one thread per process when running with
+    multiple workers, so that N worker processes do not each start a pool sized for
+    the whole machine.
+
+    Must run before numba is imported: numba snapshots the environment at import
+    time, and changing NUMBA_NUM_THREADS afterwards makes every JIT compilation in a
+    forked worker raise "Cannot set NUMBA_NUM_THREADS to a different value once the
+    threads have been launched". argparse has not run yet, so --jobs is read straight
+    off the command line.
+    """
+    jobs = 1
+    if '--jobs' in sys.argv:
+        try:
+            jobs = int(sys.argv[sys.argv.index('--jobs') + 1])
+        except (IndexError, ValueError):
+            return
+    if jobs > 1:
+        for var in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
+                    'NUMEXPR_NUM_THREADS', 'NUMBA_NUM_THREADS'):
+            os.environ.setdefault(var, '1')
+
+
+_limit_worker_threads()
 
 import numpy as np
 import librosa as lb
@@ -56,8 +83,16 @@ BENCHMARK_CONFIGS = {
     },
 }
 
-AUDIO_ROOT = "Chopin_Mazurkas/wav_22050_mono/Chopin_Op017No4"
-ANNOT_ROOT = "Chopin_Mazurkas/annotations_beat/Chopin_Op017No4"
+AUDIO_BASE_ROOT = "Chopin_Mazurkas/wav_22050_mono"
+ANNOT_BASE_ROOT = "Chopin_Mazurkas/annotations_beat"
+TRAIN_PIECE_ROOT = "Chopin_Op017No4"
+TEST_PIECE_ROOTS = [
+    "Chopin_Op024No2",
+    "Chopin_Op030No2",
+    "Chopin_Op068No3",
+]
+AUDIO_ROOT = f"{AUDIO_BASE_ROOT}/{TRAIN_PIECE_ROOT}"
+ANNOT_ROOT = f"{ANNOT_BASE_ROOT}/{TRAIN_PIECE_ROOT}"
 FEAT_DIR = "features"
 
 
@@ -148,10 +183,10 @@ def generate_scenarios(outdir: str, pairs_list: List[tuple], logger: logging.Log
     
     for i, (query, ref) in enumerate(tqdm(pairs_list, desc="Creating scenarios")):
         # Define source paths
-        query_path = os.path.join(cwd, AUDIO_ROOT, f"{query}.wav")
-        ref_path = os.path.join(cwd, AUDIO_ROOT, f"{ref}.wav")
-        query_annot_path = os.path.join(cwd, ANNOT_ROOT, f"{query}.beat")
-        ref_annot_path = os.path.join(cwd, ANNOT_ROOT, f"{ref}.beat")
+        query_path = os.path.join(cwd, get_audio_path(query))
+        ref_path = os.path.join(cwd, get_audio_path(ref))
+        query_annot_path = os.path.join(cwd, get_annotation_path(query))
+        ref_annot_path = os.path.join(cwd, get_annotation_path(ref))
         
         # Validate all source files
         if not all([
@@ -190,6 +225,64 @@ def generate_scenarios(outdir: str, pairs_list: List[tuple], logger: logging.Log
     logger.info(f"Generated {valid_scenarios_count} scenarios (skipped {len(pairs_list) - valid_scenarios_count})")
 
 
+def get_audio_path(piece_id: str) -> str:
+    """Resolve audio path for both train IDs and piece-prefixed test IDs."""
+    if "/" in piece_id:
+        return f"{AUDIO_BASE_ROOT}/{piece_id}.wav"
+    return f"{AUDIO_ROOT}/{piece_id}.wav"
+
+
+def get_annotation_path(piece_id: str) -> str:
+    """Resolve beat annotation path for both train IDs and piece-prefixed test IDs."""
+    if "/" in piece_id:
+        return f"{ANNOT_BASE_ROOT}/{piece_id}.beat"
+    return f"{ANNOT_ROOT}/{piece_id}.beat"
+
+
+def build_test_dataset(logger: logging.Logger) -> Tuple[List[str], List[Tuple[str, str]]]:
+    """
+    Build test piece IDs and one-directional within-piece alignment pairs.
+
+    Returns:
+        piece_ids: list like Chopin_Op024No2/<performance_id>
+        pairs_list: list of (query, reference) with one direction only (i < j)
+    """
+    piece_ids: List[str] = []
+    pairs_list: List[Tuple[str, str]] = []
+
+    for piece_root in TEST_PIECE_ROOTS:
+        piece_audio_dir = Path(AUDIO_BASE_ROOT) / piece_root
+        if not piece_audio_dir.exists():
+            logger.warning(f"Test audio directory not found: {piece_audio_dir}")
+            continue
+
+        local_piece_ids = sorted([f"{piece_root}/{p.stem}" for p in piece_audio_dir.glob("*.wav")])
+        if len(local_piece_ids) < 2:
+            logger.warning(f"Found fewer than 2 recordings in {piece_audio_dir}; no pairs will be created")
+
+        piece_ids.extend(local_piece_ids)
+        for i in range(len(local_piece_ids)):
+            for j in range(i + 1, len(local_piece_ids)):
+                pairs_list.append((local_piece_ids[i], local_piece_ids[j]))
+
+    logger.info(f"Built test dataset with {len(piece_ids)} recordings and {len(pairs_list)} pairs")
+    return piece_ids, pairs_list
+
+
+def save_test_cfg_files(piece_ids: List[str], pairs_list: List[Tuple[str, str]], config: Dict[str, str], logger: logging.Logger):
+    """Persist test piece IDs and pairs under cfg/."""
+    cfg_dir = Path(config['train_file']).parent
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+
+    with open(config['train_file'], 'wb') as f:
+        pickle.dump(piece_ids, f)
+    with open(config['pair_file'], 'wb') as f:
+        pickle.dump(pairs_list, f)
+
+    logger.info(f"Saved test piece list: {config['train_file']}")
+    logger.info(f"Saved test pairs list: {config['pair_file']}")
+
+
 def compute_chroma_stft_features(piece_ids: List[str], logger: logging.Logger):
     """Compute and save chroma_stft features for given pieces."""
     chroma_stft_dir = f"{FEAT_DIR}/chroma_stft_norm2"
@@ -199,13 +292,14 @@ def compute_chroma_stft_features(piece_ids: List[str], logger: logging.Logger):
     
     for piece_id in tqdm(piece_ids, desc="Computing chroma_stft"):
         feat_path = f"{chroma_stft_dir}/{piece_id}.npy"
+        os.makedirs(os.path.dirname(feat_path), exist_ok=True)
         
         # Skip if already exists
         if os.path.exists(feat_path):
             logger.debug(f"Skipping {piece_id} - already computed")
             continue
         
-        audio_path = f"{AUDIO_ROOT}/{piece_id}.wav"
+        audio_path = get_audio_path(piece_id)
         y, sr = lb.load(audio_path)
         chroma_stft_feat = lb.feature.chroma_stft(
             y=y, sr=sr, 
@@ -227,13 +321,14 @@ def compute_match_features(piece_ids: List[str], logger: logging.Logger):
     
     for piece_id in tqdm(piece_ids, desc="Computing match features"):
         feat_path = f"{match_dir}/{piece_id}.npy"
+        os.makedirs(os.path.dirname(feat_path), exist_ok=True)
         
         # Skip if already exists
         if os.path.exists(feat_path):
             logger.debug(f"Skipping {piece_id} - already computed")
             continue
         
-        audio_path = f"{AUDIO_ROOT}/{piece_id}.wav"
+        audio_path = get_audio_path(piece_id)
         match_feat = extract_match_features(audio_path)
         np.save(feat_path, match_feat)
     
@@ -292,7 +387,7 @@ def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
                 "hop_length": constants.DEFAULT_HOP_LENGTH,
                 "distance_metric": "cosine"
             }
-        elif system in ['NOA', 'NOA_MONOTONIC']:
+        elif system in ['SOA', 'SOA_MONOTONIC']:
             configs[system] = {
                 "steps": constants.DEFAULT_DTW_STEPS.tolist(),
                 "weights": constants.DEFAULT_DTW_WEIGHTS.tolist(),
@@ -301,7 +396,7 @@ def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
                 "hop_length": constants.DEFAULT_HOP_LENGTH,
                 "norm": True,
                 "distance_metric": "cosine",
-                "monotonic": system == 'NOA_MONOTONIC'
+                "monotonic": system == 'SOA_MONOTONIC'
             }
         elif system == 'MATCH':
             configs[system] = {
@@ -323,7 +418,38 @@ def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
                 "DTW_weights": [1, 1, 1],
                 "window_steps": [[1, 1], [1, 0], [0, 1]]
             }
-    
+        elif system.startswith('OLTW_OURS'):
+            configs[system] = {
+                "hop_length": constants.DEFAULT_HOP_LENGTH,
+                "feat_dir": f"{FEAT_DIR}/chroma_stft_norm2",
+                "sr": constants.DEFAULT_SR,
+                "distance_metric": "cosine",
+                "c": 500,  # constraint window
+                "DTW_steps": [[1, 0], [0, 1], [1, 1]],
+                "DTW_weights": [1, 1, 1],
+                "window_steps": [[1, 1], [1, 0], [0, 1]]
+            }
+        elif system.startswith('MM_'):
+            if system.startswith('MM_ARZT'):
+                method = 'arzt'
+            elif system.startswith('MM_HMM'):
+                method = 'hmm'
+            else:
+                method = 'dixon'
+            configs[system] = {
+                "method": method,
+                "feat_dir": f"{FEAT_DIR}/chroma_stft_norm2",
+                "sr": constants.DEFAULT_SR,
+                "hop_length": constants.DEFAULT_HOP_LENGTH,
+                "distance_metric": "cosine",
+                "window_size": 10,
+                # MM_DIXON_RAW is the same follower as MM_DIXON, reporting Dixon's
+                # alignment_path unreduced. See matchmaker_worker.READOUTS.
+                "readout": "raw" if system.endswith('_RAW') else "reduced"
+            }
+            if system.startswith('MM_ARZT'):
+                configs[system]["step_size"] = 3
+
     return configs
 
 
@@ -333,21 +459,22 @@ def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
 
 def cmd_prepare(args, logger: logging.Logger):
     """Prepare scenarios for the specified benchmark."""
-    if args.benchmark == 'test':
-        logger.error("Test benchmark not yet implemented")
-        sys.exit(1)
-    
     config = BENCHMARK_CONFIGS[args.benchmark]
-    
-    # Load pair list
-    pair_file = config['pair_file']
-    if not os.path.exists(pair_file):
-        logger.error(f"Pair file not found: {pair_file}")
-        logger.error("Please run data preparation first to create training pairs")
-        sys.exit(1)
-    
-    with open(pair_file, 'rb') as f:
-        pairs_list = pickle.load(f)
+
+    # Build test data from filesystem and persist to cfg for reproducibility
+    if args.benchmark == 'test':
+        piece_ids, pairs_list = build_test_dataset(logger)
+        save_test_cfg_files(piece_ids, pairs_list, config, logger)
+    else:
+        # Load pair list
+        pair_file = config['pair_file']
+        if not os.path.exists(pair_file):
+            logger.error(f"Pair file not found: {pair_file}")
+            logger.error("Please run data preparation first to create training pairs")
+            sys.exit(1)
+
+        with open(pair_file, 'rb') as f:
+            pairs_list = pickle.load(f)
     
     # Generate scenarios
     generate_scenarios(config['scenarios_dir'], pairs_list, logger)
@@ -357,21 +484,21 @@ def cmd_prepare(args, logger: logging.Logger):
 
 def cmd_features(args, logger: logging.Logger):
     """Compute features for the specified benchmark and systems."""
-    if args.benchmark == 'test':
-        logger.error("Test benchmark not yet implemented")
-        sys.exit(1)
-    
     config = BENCHMARK_CONFIGS[args.benchmark]
-    
-    # Load piece IDs
-    train_file = config['train_file']
-    if not os.path.exists(train_file):
-        logger.error(f"Training file not found: {train_file}")
-        logger.error("Please run data preparation first to create training set")
-        sys.exit(1)
-    
-    with open(train_file, 'rb') as f:
-        piece_ids = pickle.load(f)
+
+    if args.benchmark == 'test':
+        piece_ids, pairs_list = build_test_dataset(logger)
+        save_test_cfg_files(piece_ids, pairs_list, config, logger)
+    else:
+        # Load piece IDs
+        train_file = config['train_file']
+        if not os.path.exists(train_file):
+            logger.error(f"Training file not found: {train_file}")
+            logger.error("Please run data preparation first to create training set")
+            sys.exit(1)
+
+        with open(train_file, 'rb') as f:
+            piece_ids = pickle.load(f)
     
     logger.info(f"Processing {len(piece_ids)} pieces for {args.benchmark} benchmark")
     
@@ -383,10 +510,6 @@ def cmd_features(args, logger: logging.Logger):
 
 def cmd_experiment(args, logger: logging.Logger):
     """Run experiments for the specified benchmark and systems."""
-    if args.benchmark == 'test':
-        logger.error("Test benchmark not yet implemented")
-        sys.exit(1)
-    
     config = BENCHMARK_CONFIGS[args.benchmark]
     scenarios_dir = config['scenarios_dir']
     exp_dir = config['experiments_dir']
@@ -399,24 +522,37 @@ def cmd_experiment(args, logger: logging.Logger):
     
     # Load system configurations
     system_configs = load_system_config(args.config, args.systems, logger)
+
+    # MATCH needs a different root when pair IDs are piece-prefixed (test benchmark)
+    if 'MATCH' in system_configs and args.benchmark == 'test':
+        system_configs['MATCH']['audio_root'] = AUDIO_BASE_ROOT
     
-    # Ensure NOA runs before NOA_MONOTONIC when both are requested
+    # Ensure SOA runs before SOA_MONOTONIC when both are requested
     systems_order = []
-    if 'NOA' in args.systems:
-        systems_order.append('NOA')
-    if 'NOA_MONOTONIC' in args.systems:
-        systems_order.append('NOA_MONOTONIC')
+    if 'SOA' in args.systems:
+        systems_order.append('SOA')
+    if 'SOA_MONOTONIC' in args.systems:
+        systems_order.append('SOA_MONOTONIC')
     for s in args.systems:
-        if s not in ('NOA', 'NOA_MONOTONIC'):
+        if s not in ('SOA', 'SOA_MONOTONIC'):
             systems_order.append(s)
     
+    jobs = getattr(args, 'jobs', 1)
+    resume = getattr(args, 'resume', False)
+
+    # Thread pools were already capped at import time by _limit_worker_threads().
+    if jobs > 1:
+        logger.info(f"Running experiments with {jobs} worker processes")
+
     # Ensure experiment directory exists; clean only the systems being run
     os.makedirs(exp_dir, exist_ok=True)
     for system in systems_order:
         system_dir = os.path.join(exp_dir, system)
-        if os.path.exists(system_dir):
+        if os.path.exists(system_dir) and not resume:
             logger.info(f"Cleaning experiment directory for {system}: {system_dir}")
             shutil.rmtree(system_dir)
+        elif os.path.exists(system_dir):
+            logger.info(f"Resuming {system}: keeping existing results in {system_dir}")
         os.makedirs(system_dir, exist_ok=True)
     
     # Run experiments for each system
@@ -427,24 +563,24 @@ def cmd_experiment(args, logger: logging.Logger):
             logger.error(f"No configuration found for system: {system}")
             continue
         
-        if system == 'NOA_MONOTONIC':
-            # If NOA paths exist, convert them to monotonic instead of recomputing
-            noa_dir = os.path.join(exp_dir, 'NOA')
-            noa_mono_dir = os.path.join(exp_dir, 'NOA_MONOTONIC')
+        if system == 'SOA_MONOTONIC':
+            # If SOA paths exist, convert them to monotonic instead of recomputing
+            soa_dir = os.path.join(exp_dir, 'SOA')
+            soa_mono_dir = os.path.join(exp_dir, 'SOA_MONOTONIC')
             scenario_ids = [d for d in os.listdir(scenarios_dir)
                            if os.path.isdir(os.path.join(scenarios_dir, d))]
             converted = 0
             for scenario_id in scenario_ids:
-                noa_hyp = os.path.join(noa_dir, scenario_id, 'hyp.npy')
-                if os.path.isfile(noa_hyp):
-                    path = np.load(noa_hyp)
+                soa_hyp = os.path.join(soa_dir, scenario_id, 'hyp.npy')
+                if os.path.isfile(soa_hyp):
+                    path = np.load(soa_hyp)
                     path_mono = path_to_monotonic(path)
-                    out_path = os.path.join(noa_mono_dir, scenario_id)
+                    out_path = os.path.join(soa_mono_dir, scenario_id)
                     os.makedirs(out_path, exist_ok=True)
                     np.save(os.path.join(out_path, 'hyp.npy'), path_mono)
                     converted += 1
             if converted:
-                logger.info(f"Generated NOA_MONOTONIC from existing NOA paths for {converted} scenarios")
+                logger.info(f"Generated SOA_MONOTONIC from existing SOA paths for {converted} scenarios")
         
         # Convert lists back to numpy arrays for DTW steps/weights
         kwargs = system_configs[system].copy()
@@ -458,7 +594,7 @@ def cmd_experiment(args, logger: logging.Logger):
             kwargs['window_steps'] = np.array(kwargs['window_steps'])
         
         runner = ExperimentRunner(system, kwargs, logger=logger)
-        runner.run_batch(scenarios_dir, exp_dir)
+        runner.run_batch(scenarios_dir, exp_dir, jobs=jobs)
         
         logger.info(f"{system} experiments complete")
     
@@ -467,10 +603,6 @@ def cmd_experiment(args, logger: logging.Logger):
 
 def cmd_evaluate(args, logger: logging.Logger):
     """Evaluate experiments for the specified benchmark."""
-    if args.benchmark == 'test':
-        logger.error("Test benchmark not yet implemented")
-        sys.exit(1)
-    
     config = BENCHMARK_CONFIGS[args.benchmark]
     scenarios_dir = config['scenarios_dir']
     exp_dir = config['experiments_dir']
@@ -497,7 +629,7 @@ def cmd_evaluate(args, logger: logging.Logger):
         logger.info(f"Evaluating {system}")
         system_exp_dir = os.path.join(exp_dir, system)
         system_eval_dir = os.path.join(eval_dir, system)
-        
+
         eval_tools.eval_alignment_batch(system_exp_dir, scenarios_dir, system_eval_dir, logger=logger)
         logger.info(f"{system} evaluation complete")
     
@@ -551,14 +683,14 @@ def main():
         epilog="""
 Examples:
   # Run full pipeline with default settings
-  python benchmark.py run --benchmark train_small --systems DTW NOA
+  python benchmark.py run --benchmark train_small --systems DTW SOA
   
   # Run full pipeline with custom config
   python benchmark.py run --benchmark train_small --config configs/my_config.json
   
   # Run individual steps
   python benchmark.py prepare --benchmark train_small
-  python benchmark.py features --benchmark train_small --systems DTW NOA
+  python benchmark.py features --benchmark train_small --systems DTW SOA
   python benchmark.py experiment --benchmark train_small --systems OLTW_GLOBAL --config configs/oltw_config.json
   python benchmark.py evaluate --benchmark train_small
         """
@@ -585,9 +717,13 @@ Examples:
                                    choices=['train_small', 'train', 'test'],
                                    help='Benchmark to run experiments on')
     experiment_parser.add_argument('--systems', nargs='+', required=True,
-                                   help='Systems to run (DTW, NOA, NOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, or custom)')
+                                   help='Systems to run (DTW, SOA, SOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
     experiment_parser.add_argument('--config', type=str,
                                    help='JSON configuration file for system parameters')
+    experiment_parser.add_argument('--jobs', type=int, default=1,
+                                   help='Number of scenarios to run in parallel (default: 1, serial)')
+    experiment_parser.add_argument('--resume', action='store_true',
+                                   help='Keep existing results instead of clearing the system directory')
     
     # Evaluate command
     evaluate_parser = subparsers.add_parser('evaluate', help='Evaluate experiments')
@@ -601,9 +737,13 @@ Examples:
                             choices=['train_small', 'train', 'test'],
                             help='Benchmark to run')
     run_parser.add_argument('--systems', nargs='+', required=True,
-                            help='Systems to run (DTW, NOA, NOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, or custom)')
+                            help='Systems to run (DTW, SOA, SOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
     run_parser.add_argument('--config', type=str,
                             help='JSON configuration file for system parameters')
+    run_parser.add_argument('--jobs', type=int, default=1,
+                            help='Number of scenarios to run in parallel (default: 1, serial)')
+    run_parser.add_argument('--resume', action='store_true',
+                            help='Keep existing results instead of clearing the system directory')
     
     args = parser.parse_args()
     

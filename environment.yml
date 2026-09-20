@@ -1,0 +1,23 @@
+# Environment for the benchmark itself. The MatchMaker baselines (MM_DIXON,
+# MM_ARZT) need a second environment; see environment-matchmaker.yml.
+name: sim-realtime-mazurka
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy>=2.0
+  - numba>=0.60
+  - scipy>=1.13
+  - librosa>=0.11
+  - pandas>=2.0
+  - matplotlib>=3.8
+  - plotly>=6.0
+  - tqdm
+  - jupyterlab
+  - pip
+  - pip:
+      - kaleido>=1.0          # static image export for the plotly figures
+      - hmc_mir>=0.1.15       # offline DTW used by the DTW baseline
+      - vamp>=1.1             # python host for the match-vamp-plugin (MATCH only)
+      - online-alignment @ git+https://github.com/HMC-MIR/OnlineAlignment@v0.1.5

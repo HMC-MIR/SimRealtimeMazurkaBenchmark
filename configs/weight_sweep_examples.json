@@ -1,5 +1,5 @@
 {
-  "DTW": {
+  "SOA1": {
     "steps": [
       [
         1,
@@ -15,34 +15,9 @@
       ]
     ],
     "weights": [
-      1,
       2,
-      2
-    ],
-    "feat_dir": "features/chroma_stft_norm2",
-    "sr": 22050,
-    "hop_length": 512,
-    "distance_metric": "cosine"
-  },
-  "SOA": {
-    "steps": [
-      [
-        1,
-        1
-      ],
-      [
-        1,
-        2
-      ],
-      [
-        2,
-        1
-      ]
-    ],
-    "weights": [
-      1,
-      2,
-      2
+      3,
+      3
     ],
     "feat_dir": "features/chroma_stft_norm2",
     "sr": 22050,
@@ -51,7 +26,34 @@
     "distance_metric": "cosine",
     "monotonic": false
   },
-  "SOA_MONOTONIC": {
+  "SOA2": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      1.5,
+      3,
+      3
+    ],
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "norm": true,
+    "distance_metric": "cosine",
+    "monotonic": false
+  },
+  "SOA3": {
     "steps": [
       [
         1,
@@ -68,26 +70,45 @@
     ],
     "weights": [
       1,
-      2,
-      2
+      3,
+      3
     ],
     "feat_dir": "features/chroma_stft_norm2",
     "sr": 22050,
     "hop_length": 512,
     "norm": true,
     "distance_metric": "cosine",
-    "monotonic": true
+    "monotonic": false
   },
-  "OLTW": {
-    "hop_length": 512
-  },
-  "OLTW_GLOBAL": {
-    "hop_length": 512,
+  "SOA4": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      0.75,
+      3,
+      3
+    ],
     "feat_dir": "features/chroma_stft_norm2",
     "sr": 22050,
+    "hop_length": 512,
+    "norm": true,
     "distance_metric": "cosine",
-    "c": null,
-    "DTW_steps": [
+    "monotonic": false
+  },
+  "SOA5": {
+    "steps": [
       [
         1,
         0
@@ -101,81 +122,116 @@
         1
       ]
     ],
-    "DTW_weights": [
+    "weights": [
       1,
       1,
       1
     ],
-    "window_steps": [
-      [
-        1,
-        1
-      ],
-      [
-        1,
-        0
-      ],
-      [
-        0,
-        1
-      ]
-    ]
-  },
-  "OLTW_OURS": {
-    "hop_length": 512,
     "feat_dir": "features/chroma_stft_norm2",
     "sr": 22050,
+    "hop_length": 512,
+    "norm": true,
     "distance_metric": "cosine",
-    "c": 500,
-    "DTW_steps": [
+    "monotonic": false
+  },
+  "DTW1": {
+    "steps": [
       [
         1,
-        0
-      ],
-      [
-        0,
         1
       ],
       [
         1,
+        2
+      ],
+      [
+        2,
         1
       ]
     ],
-    "DTW_weights": [
-      1,
-      1,
-      1
+    "weights": [
+      2,
+      3,
+      3
     ],
-    "window_steps": [
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "distance_metric": "cosine"
+  },
+  "DTW2": {
+    "steps": [
       [
         1,
         1
       ],
       [
         1,
-        0
+        2
       ],
       [
-        0,
+        2,
         1
       ]
-    ]
-  },
-  "MM_DIXON": {
-    "method": "dixon",
+    ],
+    "weights": [
+      1.5,
+      3,
+      3
+    ],
     "feat_dir": "features/chroma_stft_norm2",
     "sr": 22050,
     "hop_length": 512,
-    "distance_metric": "cosine",
-    "window_size": 10
+    "distance_metric": "cosine"
   },
-  "MM_ARZT": {
-    "method": "arzt",
+  "DTW3": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      1,
+      3,
+      3
+    ],
     "feat_dir": "features/chroma_stft_norm2",
     "sr": 22050,
     "hop_length": 512,
-    "distance_metric": "cosine",
-    "window_size": 10,
-    "step_size": 3
+    "distance_metric": "cosine"
+  },
+  "DTW4": {
+    "steps": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "weights": [
+      0.75,
+      3,
+      3
+    ],
+    "feat_dir": "features/chroma_stft_norm2",
+    "sr": 22050,
+    "hop_length": 512,
+    "distance_metric": "cosine"
   }
 }

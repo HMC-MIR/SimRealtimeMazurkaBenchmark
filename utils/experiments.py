@@ -1,5 +1,6 @@
 import os
 import logging
+import multiprocessing
 import subprocess
 
 import numpy as np
@@ -9,8 +10,8 @@ from tqdm import tqdm
 import vamp
 import pandas as pd
 
-from noa import compute_cosine_distance, compute_euclidean_distance
 from utils.oltw import online_processing
+from utils.matchmaker_baseline import run_matchmaker_alignment
 from online_alignment import run_offline_oltw, run_offline_noa
 
 @jit(nopython=True, parallel=True)
@@ -64,10 +65,30 @@ def parse_match_outfile(infile):
             d = pd.read_csv(infile, header=None)
             return np.vstack((d.loc[:,1], d.loc[:,2]))
 
+def _run_scenario(task):
+    """
+    Runs one scenario in a worker process.
+
+    Module level, and rebuilds the runner from (exp_type, kwargs), so that nothing
+    unpicklable (such as a logger) has to cross the process boundary.
+
+    Inputs
+    task: a tuple of (exp_type, kwargs, scenario_path, out_dir)
+
+    Returns a tuple of (scenario_path, error string or None).
+    """
+    exp_type, kwargs, scenario_path, out_dir = task
+    try:
+        ExperimentRunner(exp_type, kwargs).run(scenario_path, out_dir)
+        return scenario_path, None
+    except Exception as e:
+        return scenario_path, repr(e)
+
+
 class ExperimentRunner:
     def __init__(self, exp_type, kwargs, logger=None):
         """
-        exp_type: experiment to run. Currently accepts DTW, NOA, or MATCH
+        exp_type: experiment to run. Currently accepts DTW, SOA, or MATCH
         kwargs: arguments needed to pass in for the experiment
         logger: optional logger instance
         """
@@ -84,8 +105,8 @@ class ExperimentRunner:
         scenario_id = scenarios_dir.split("/")[-1] # e.g. s1
         out_path = f"{out_dir}/{self.exp_type}/{scenario_id}" # e.g. experiments/DTW/s1
         
-        # check if out_path exists. if so, skip
-        if os.path.exists(out_path):
+        # check if the result already exists. if so, skip
+        if os.path.exists(f"{out_path}/hyp.npy"):
             print(f"Skipping {out_path} because it already exists")
             return
         
@@ -93,37 +114,68 @@ class ExperimentRunner:
         os.makedirs(out_path, exist_ok=True)
         
         # run experiment
-        if self.exp_type == "DTW":
+        if self.exp_type == "DTW" or self.exp_type.startswith("DTW"):
             self.run_dtw(scenarios_dir, out_path)
-        elif self.exp_type == "NOA" or self.exp_type == "NOA_MONOTONIC":
-            self.run_noa(scenarios_dir, out_path)
+        elif self.exp_type in ("SOA", "SOA_MONOTONIC") or self.exp_type.startswith("SOA"):
+            self.run_soa(scenarios_dir, out_path)
         elif self.exp_type == "MATCH":
             self.run_match(scenarios_dir, out_path)
         elif self.exp_type == "OLTW":
             self.run_oltw(scenarios_dir, out_path)
+        elif self.exp_type.startswith("MM_"):
+            self.run_matchmaker(scenarios_dir, out_path)
         elif "OLTW_" in self.exp_type:
             self.run_oltw_global(scenarios_dir, out_path)
         else:
             raise ValueError(f"Invalid experiment type: {self.exp_type}")
             
-    def run_batch(self, scenarios_root, out_dir):
+    def _log_scenario_error(self, scenario_path, error, exc_info=False):
+        """
+        Reports a per-scenario failure without aborting the batch.
+        """
+        message = f"Error running experiment for {scenario_path}: {error}"
+        if self.logger:
+            self.logger.error(message, exc_info=exc_info)
+        else:
+            print(message)
+
+    def run_batch(self, scenarios_root, out_dir, jobs=1):
         """
         Runs experiments for all scenarios under scenarios_root.
+
+        Inputs
+        scenarios_root: directory holding one subdirectory per scenario
+        out_dir: directory to write results to
+        jobs: number of worker processes. 1 runs serially in this process.
         """
         if not os.path.isdir(scenarios_root):
             raise ValueError(f"{scenarios_root} is not a directory")
-        
-        for scenario_dir in tqdm(os.listdir(scenarios_root)):
-            scenario_path = os.path.join(scenarios_root, scenario_dir)
-            if os.path.isdir(scenario_path):
+
+        scenario_paths = sorted(
+            os.path.join(scenarios_root, d)
+            for d in os.listdir(scenarios_root)
+            if os.path.isdir(os.path.join(scenarios_root, d))
+        )
+
+        if jobs <= 1:
+            for scenario_path in tqdm(scenario_paths):
                 try:
                     self.run(scenario_path, out_dir)
                 except Exception as e:
-                    if self.logger:
-                        self.logger.error(f"Error running experiment for {scenario_path}: {e}", exc_info=True)
-                    else:
-                        print(f"Error running experiment for {scenario_path}: {e}")
+                    self._log_scenario_error(scenario_path, e, exc_info=True)
                     continue
+            return
+
+        # Scenarios are independent: each writes only its own hyp.npy and reads
+        # shared read-only feature files, so they parallelise without coordination.
+        # chunksize=1 because scenario durations vary widely.
+        tasks = [(self.exp_type, self.kwargs, path, out_dir) for path in scenario_paths]
+        with multiprocessing.Pool(processes=jobs) as pool:
+            for scenario_path, error in tqdm(
+                pool.imap_unordered(_run_scenario, tasks, chunksize=1), total=len(tasks)
+            ):
+                if error is not None:
+                    self._log_scenario_error(scenario_path, error)
                 
     def load_feat(self, scenarios_dir):
         """
@@ -166,9 +218,9 @@ class ExperimentRunner:
         np.save(os.path.join(out_path, "hyp.npy"), wp_sec)
         
         
-    def run_noa(self, scenarios_dir, out_path, monotonic = False):
+    def run_soa(self, scenarios_dir, out_path, monotonic = False):
         """
-        Runs NOA experiment for the given scenario and stores results to output path.
+        Runs SOA experiment for the given scenario and stores results to output path.
         """
         # generate out_path
         os.makedirs(out_path, exist_ok=True)
@@ -176,10 +228,10 @@ class ExperimentRunner:
         # load query and reference features
         query_feat, reference_feat = self.load_feat(scenarios_dir)
         
-        # run NOA
+        # run SOA
         norm = self.kwargs['norm']
         monotonic = self.kwargs['monotonic']
-        wp = run_offline_noa(reference_feat, query_feat, cost_metric = self.kwargs['distance_metric'], monotonic = monotonic, normalize = norm)
+        wp = run_offline_noa(reference_feat, query_feat, steps = self.kwargs['steps'], weights = self.kwargs['weights'], cost_metric = self.kwargs['distance_metric'], monotonic = monotonic, normalize = norm)
         
         # convert to seconds
         hop_sec = self.kwargs['hop_length'] / self.kwargs['sr']
@@ -203,7 +255,7 @@ class ExperimentRunner:
         window_steps = self.kwargs['window_steps']
         DTW_weights = self.kwargs['DTW_weights']
 
-        # run NOA
+        # run SOA
         wp = run_offline_oltw(reference_feat, query_feat, c=self.kwargs['c'], DTW_steps=DTW_steps, window_steps=window_steps, DTW_weights=DTW_weights, cost_metric=self.kwargs['distance_metric'])
         
         # convert to seconds
@@ -213,6 +265,31 @@ class ExperimentRunner:
         # store result
         np.save(os.path.join(out_path, "hyp.npy"), wp_sec)
         
+    def run_matchmaker(self, scenarios_dir, out_path):
+        """
+        Runs a MatchMaker OLTW baseline for the given scenario and stores results to output path.
+        """
+        # generate out_path
+        os.makedirs(out_path, exist_ok=True)
+
+        # load query and reference
+        with open(os.path.join(scenarios_dir, "pair.txt"), "r") as f:
+            query, reference = f.read().split()
+
+        # run MatchMaker in its own environment, which writes the alignment directly
+        run_matchmaker_alignment(
+            ref_feat_path=f"{self.kwargs['feat_dir']}/{reference}.npy",
+            query_feat_path=f"{self.kwargs['feat_dir']}/{query}.npy",
+            out_file=os.path.join(out_path, "hyp.npy"),
+            method=self.kwargs['method'],
+            sr=self.kwargs['sr'],
+            hop_length=self.kwargs['hop_length'],
+            window_size=self.kwargs['window_size'],
+            distance_metric=self.kwargs['distance_metric'],
+            step_size=self.kwargs.get('step_size'),
+            readout=self.kwargs.get('readout', 'reduced'),
+        )
+
     def run_match(self, scenarios_dir, out_path):
         """
         Runs MATCH experiment for the given scenario and stores results to output path.
