@@ -1,103 +1,108 @@
 """
-Check that Vienna 4x22 match-file times line up with the audio recordings.
+Check that Vienna 4x22 match-file times are audio times.
 
 The ground truth this benchmark derives from the match files is only as good as
 the assumption that a performed note's time in the match file is its time in the
-.wav. The corpus maintainers shifted the match and MIDI files onto the audio
-timeline in March 2024 (see CHANGES.md upstream), but the result is not uniform:
-every one of the 22 Chopin op. 10 no. 3 and op. 38 performances starts at tick 0,
-while the Mozart and Schubert performances start at plausibly varied times
-between 0.14 s and 2.27 s. Twenty-two independent takes cannot all begin exactly
-at t=0, which suggests the shift never landed on the two Chopin pieces, or was
-clamped away by the `max(0, note_on + time_shift)` in the upstream script.
+.wav. This script tests that assumption directly: it detects onsets in the
+recording and measures what fraction of them land within a tolerance of a note
+onset in the match file, scanning over candidate shifts. A correctly aligned
+recording scores near 1.0 at a shift of zero.
 
-This script measures the offset directly. It builds an onset envelope from the
-audio, builds a second one from the match file's note onsets, and reports the lag
-that best aligns them. An offset near zero means the match times can be used as
-they stand; a consistent non-zero offset means the annotations would be wrong by
-that much for that recording.
+Measuring agreement on every onset, rather than correlating onset envelopes,
+matters here. An envelope correlation returns a confident-looking peak near zero
+for any pair of signals with similar overall density, so it cannot distinguish
+"aligned" from "no information"; the hit rate falls off sharply when a recording
+is genuinely misaligned, and says so.
+
+Two red herrings worth knowing about, both settled by this test:
+
+  - Every Chopin op. 10 no. 3 and op. 38 performance has its first note at tick
+    0, unlike the Mozart and Schubert ones. That is not a missing time shift:
+    the Chopin recordings were trimmed to begin at the first note.
+  - The Chopin <piece>_FirstOnsets.txt files shipped with the audio date from
+    2001 and describe the untrimmed recordings, so they disagree with both the
+    match files and the current audio. The Mozart and Schubert ones were
+    annotated in 2016 against the current audio and do agree.
 
 Usage:
     python -m scripts.vienna4x22.verify_timebase --audio-dir <dir> --match-dir <dir>
 """
 
 import argparse
+import json
 import re
 from collections import defaultdict
 from pathlib import Path
 
 import librosa as lb
 import numpy as np
-from scipy import signal
 
 from scripts.vienna4x22.match_io import load_match
 
 SR = 22050
-HOP = 512
-MAX_LAG_SEC = 4.0
+HOP = 256
+MAX_SHIFT_SEC = 4.0
+SHIFT_STEP_SEC = 0.01
+TOLERANCE_SEC = 0.05
+# Below this, the match times do not describe the recording and the derived
+# annotations would be wrong by however far off they are.
+MIN_HIT_RATE = 0.80
 
 
-def match_onset_envelope(performance, n_frames: int) -> np.ndarray:
+def detect_onsets(path: Path) -> np.ndarray:
+    """Onset times in a recording, in seconds."""
+    y, sr = lb.load(str(path), sr=SR, mono=True)
+    return lb.onset.onset_detect(y=y, sr=sr, hop_length=HOP, units='time', backtrack=True)
+
+
+def hit_rate(audio_onsets: np.ndarray, match_onsets: np.ndarray, shift: float,
+             tolerance: float = TOLERANCE_SEC) -> float:
+    """Fraction of detected audio onsets within tolerance of a shifted match onset."""
+    if len(audio_onsets) == 0 or len(match_onsets) == 0:
+        return 0.0
+    shifted = match_onsets + shift
+    idx = np.clip(np.searchsorted(shifted, audio_onsets), 1, len(shifted) - 1)
+    nearest = np.minimum(np.abs(audio_onsets - shifted[idx - 1]),
+                         np.abs(audio_onsets - shifted[idx]))
+    return float(np.mean(nearest < tolerance))
+
+
+def best_shift(audio_onsets: np.ndarray, match_onsets: np.ndarray) -> tuple:
     """
-    Build a frame-rate onset envelope from a match file's performed onsets.
-
-    Each score position contributes one impulse per note played there, so dense
-    chords weigh more than single notes, roughly as they do in an audio onset
-    envelope.
-    """
-    env = np.zeros(n_frames)
-    for times in performance.onsets.values():
-        for t in times:
-            frame = int(round(t * SR / HOP))
-            if 0 <= frame < n_frames:
-                env[frame] += 1.0
-    return env
-
-
-def best_lag_seconds(audio_env: np.ndarray, match_env: np.ndarray) -> tuple:
-    """
-    Find the lag that best aligns two envelopes.
-
-    Zero-padded cross-correlation rather than a circular one: at these lags a
-    circular shift would wrap several seconds of one envelope around to the
-    other end, which is exactly the kind of contamination that would bias the
-    measurement this script exists to make.
-
-    Args:
-        audio_env: onset strength computed from the recording
-        match_env: onset impulses built from the match file
+    Scan candidate shifts and return the one that explains the most onsets.
 
     Returns:
-        (lag_seconds, sharpness). A positive lag means the audio lags the match
-        file, i.e. match times need that much added. Sharpness is the peak
-        correlation over the median absolute correlation across searched lags;
-        a flat, ambiguous correlation scores near 1.
+        (shift_seconds, hit_rate_at_that_shift, hit_rate_at_zero)
     """
-    n = min(len(audio_env), len(match_env))
-    a = audio_env[:n].astype(float)
-    m = match_env[:n].astype(float)
-    a = (a - a.mean()) / (a.std() + 1e-9)
-    m = (m - m.mean()) / (m.std() + 1e-9)
+    shifts = np.arange(-MAX_SHIFT_SEC, MAX_SHIFT_SEC + SHIFT_STEP_SEC, SHIFT_STEP_SEC)
+    rates = np.array([hit_rate(audio_onsets, match_onsets, s) for s in shifts])
+    peak = int(np.argmax(rates))
+    return float(shifts[peak]), float(rates[peak]), hit_rate(audio_onsets, match_onsets, 0.0)
 
-    scores = signal.correlate(a, m, mode='full', method='fft')
-    # Index k of a 'full' correlation corresponds to shifting m forward by
-    # k - (n - 1) samples.
-    all_lags = np.arange(len(scores)) - (n - 1)
 
-    max_lag = int(round(MAX_LAG_SEC * SR / HOP))
-    searched = np.abs(all_lags) <= max_lag
-    scores, lags = scores[searched], all_lags[searched]
+def segment_shifts(audio_onsets: np.ndarray, match_onsets: np.ndarray, duration: float) -> tuple:
+    """
+    Best shift over the first and last third of a recording.
 
-    peak = int(np.argmax(scores))
-    sharpness = scores[peak] / (np.median(np.abs(scores)) + 1e-9)
-    return lags[peak] * HOP / SR, sharpness
+    A constant offset moves both equally. A clock-rate mismatch between the MIDI
+    capture and the audio recorder would instead show as a shift that grows
+    across the piece, which no single offset could correct.
+    """
+    third = duration / 3.0
+    head = audio_onsets[audio_onsets <= third]
+    tail = audio_onsets[audio_onsets >= 2 * third]
+    if len(head) < 10 or len(tail) < 10:
+        return float('nan'), float('nan')
+    return best_shift(head, match_onsets)[0], best_shift(tail, match_onsets)[0]
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--audio-dir', required=True, type=Path, help='directory of Vienna 4x22 .wav files')
-    parser.add_argument('--match-dir', required=True, type=Path, help='directory of .match files')
-    parser.add_argument('--limit', type=int, default=0, help='check only the first N performances per piece')
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--audio-dir', required=True, type=Path, help='unpacked Vienna 4x22 audio')
+    parser.add_argument('--match-dir', required=True, type=Path, help='the corpus match/ directory')
+    parser.add_argument('--emit-offsets', type=Path,
+                        help='write any needed corrections as JSON, for prepare.py --offsets')
     args = parser.parse_args()
 
     audio_files = {p.stem: p for p in args.audio_dir.rglob('*.wav')}
@@ -108,45 +113,53 @@ def main():
         if not name:
             print(f"  skipping {match_file.name}: not a <piece>_p<NN> match file")
             continue
-        piece, performer = name.groups()
-        by_piece[piece].append((performer, match_file))
+        by_piece[name.group(1)].append((name.group(2), match_file))
 
-    all_offsets = []
-    for piece, entries in by_piece.items():
-        if args.limit:
-            entries = entries[:args.limit]
-        offsets = []
+    corrections = {}
+    checked = misaligned = 0
+
+    for piece, entries in sorted(by_piece.items()):
+        rows = []
         for performer, match_file in entries:
             if match_file.stem not in audio_files:
-                print(f"  {piece} {performer}: NO AUDIO ({match_file.stem}.wav)")
+                print(f"  {piece} {performer}: no audio ({match_file.stem}.wav)")
                 continue
 
-            y, _ = lb.load(audio_files[match_file.stem], sr=SR, mono=True)
-            audio_env = lb.onset.onset_strength(y=y, sr=SR, hop_length=HOP)
-
             performance = load_match(match_file)
-            match_env = match_onset_envelope(performance, len(audio_env))
+            match_onsets = np.array(sorted(t for ts in performance.onsets.values() for t in ts))
+            audio_onsets = detect_onsets(audio_files[match_file.stem])
+            duration = lb.get_duration(path=str(audio_files[match_file.stem]))
 
-            lag, sharpness = best_lag_seconds(audio_env, match_env)
-            offsets.append((performer, lag, sharpness))
+            shift, rate_at_shift, rate_at_zero = best_shift(audio_onsets, match_onsets)
+            head, tail = segment_shifts(audio_onsets, match_onsets, duration)
+            rows.append((performer, shift, rate_at_shift, rate_at_zero, tail - head))
 
-        if not offsets:
+            checked += 1
+            if rate_at_zero < MIN_HIT_RATE:
+                misaligned += 1
+                corrections[match_file.stem] = round(shift, 4)
+
+        if not rows:
             continue
-        lags = np.array([o[1] for o in offsets])
-        all_offsets.extend(lags)
-        flag = 'OK' if np.all(np.abs(lags) <= 0.05) else 'OFFSET'
-        print(f"{piece:24s} n={len(offsets):2d}  median={np.median(lags):+7.3f}s  "
-              f"range=[{lags.min():+.3f}, {lags.max():+.3f}]s  "
-              f"min sharpness={min(o[2] for o in offsets):5.1f}  {flag}")
-        for performer, lag, sharpness in offsets:
-            if abs(lag) > 0.05:
-                print(f"      {performer}: {lag:+.3f}s (sharpness {sharpness:.1f})")
+        at_zero = np.array([r[3] for r in rows])
+        shifts = np.array([r[1] for r in rows])
+        drift = np.array([r[4] for r in rows])
+        verdict = 'ALIGNED' if np.all(at_zero >= MIN_HIT_RATE) else 'MISALIGNED'
+        print(f"{piece:24s} n={len(rows):2d}  onsets explained at shift 0: "
+              f"{at_zero.mean():5.1%} (worst {at_zero.min():5.1%})  "
+              f"best shift |max| {np.abs(shifts).max():.2f}s  "
+              f"drift |max| {np.nanmax(np.abs(drift)):.2f}s  {verdict}")
+        for performer, shift, rate_at_shift, rate_at_zero, d in rows:
+            if rate_at_zero < MIN_HIT_RATE:
+                print(f"      {performer}: only {rate_at_zero:.1%} at shift 0; "
+                      f"best {rate_at_shift:.1%} at {shift:+.3f}s")
 
-    if all_offsets:
-        a = np.abs(np.array(all_offsets))
-        print(f"\n{len(a)} performances checked; "
-              f"{int((a > 0.05).sum())} with |offset| > 50 ms, "
-              f"{int((a > 0.5).sum())} with |offset| > 500 ms")
+    print(f"\n{checked} recordings checked, {misaligned} misaligned")
+    if args.emit_offsets and corrections:
+        args.emit_offsets.write_text(json.dumps(corrections, indent=2, sort_keys=True) + '\n')
+        print(f"wrote {len(corrections)} corrections to {args.emit_offsets}")
+    elif misaligned == 0:
+        print("No correction needed; prepare.py can be run without --offsets.")
 
 
 if __name__ == '__main__':
