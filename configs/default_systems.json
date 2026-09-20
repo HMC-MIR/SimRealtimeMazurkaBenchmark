@@ -24,7 +24,7 @@
     "hop_length": 512,
     "distance_metric": "cosine"
   },
-  "NOA": {
+  "SOA": {
     "steps": [
       [
         1,
@@ -51,7 +51,7 @@
     "distance_metric": "cosine",
     "monotonic": false
   },
-  "NOA_MONOTONIC": {
+  "SOA_MONOTONIC": {
     "steps": [
       [
         1,

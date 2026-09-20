@@ -20,7 +20,7 @@ conda env create -f environment.yml
 conda activate sim-realtime-mazurka
 
 # smoke test: 45 scenarios, no external dependencies
-python benchmark.py run --benchmark train_small --systems DTW NOA --jobs 8
+python benchmark.py run --benchmark train_small --systems DTW SOA --jobs 8
 ```
 
 The four stages can also be run separately:
@@ -28,7 +28,7 @@ The four stages can also be run separately:
 ```bash
 python benchmark.py prepare    --benchmark test                    # build scenario dirs
 python benchmark.py features   --benchmark test                    # cache chroma features
-python benchmark.py experiment --benchmark test --systems DTW NOA --jobs 8
+python benchmark.py experiment --benchmark test --systems DTW SOA --jobs 8
 python benchmark.py evaluate   --benchmark test                    # score against annotations
 ```
 
@@ -65,21 +65,23 @@ Each benchmark writes to its own set of directories (`scenarios*/`, `experiments
 
 ## Systems
 
-`--systems` takes the keys below. The paper labels differ from the keys; the mapping lives
-in `SYSTEM_DISPLAY_NAMES` in `utils/constants.py` and is applied when figures and tables are
-drawn, so directory names stay stable.
+`--systems` takes the keys below.
 
-| key | paper label | description | extra requirements |
-|---|---|---|---|
-| `DTW` | DTW | offline DTW reference (not real-time) | — |
-| `NOA` | SOA | our online alignment | — |
-| `NOA_MONOTONIC` | SOA-Mono | as above, predictions forced monotonic | — |
-| `OLTW_GLOBAL` | OLTW-Global | our OLTW, unconstrained | — |
-| `OLTW_OURS` | OLTW-Ours | our OLTW, constrained window | — |
-| `OLTW` | OLTW | Dixon's OLTW via `PerformanceMatcher.jar` | Java, `match/PerformanceMatcher.jar` |
-| `MATCH` | MATCH | Dixon's MATCH via the Vamp plugin | `sonic-annotator`, match-vamp-plugin |
-| `MM_DIXON` | MM-Dixon | [MatchMaker](https://github.com/pymatchmaker/matchmaker) OLTW, Dixon variant | `matchmaker` env |
-| `MM_ARZT` | MM-Arzt | MatchMaker OLTW, Arzt variant | `matchmaker` env |
+| key | description | extra requirements |
+|---|---|---|
+| `DTW` | offline DTW reference (not real-time) | — |
+| `SOA` | our online alignment | — |
+| `SOA_MONOTONIC` | as above, predictions forced monotonic | — |
+| `OLTW_GLOBAL` | our OLTW, unconstrained | — |
+| `OLTW_OURS` | our OLTW, constrained window | — |
+| `OLTW` | Dixon's OLTW via `PerformanceMatcher.jar` | Java, `match/PerformanceMatcher.jar` |
+| `MATCH` | Dixon's MATCH via the Vamp plugin | `sonic-annotator`, match-vamp-plugin |
+| `MM_DIXON` | [MatchMaker](https://github.com/pymatchmaker/matchmaker) OLTW, Dixon variant | `matchmaker` env |
+| `MM_ARZT` | MatchMaker OLTW, Arzt variant | `matchmaker` env |
+
+A few keys are written differently in the paper (`SOA_MONOTONIC` as SOA-Mono, `OLTW_GLOBAL`
+as OLTW-Global, `MM_DIXON` as MM-Dixon); `SYSTEM_DISPLAY_NAMES` in `utils/constants.py`
+handles that at plot time, so directory names stay stable.
 
 Default parameters are in `configs/default_systems.json`; see `configs/README.md` for the
 parameter reference and the tuning sweeps.

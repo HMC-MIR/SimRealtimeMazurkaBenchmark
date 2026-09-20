@@ -10,19 +10,15 @@ DEFAULT_HOP_LENGTH: int = 512
 DEFAULT_DTW_STEPS: np.ndarray = np.array([1, 1, 1, 2, 2, 1]).reshape((-1, 2))
 DEFAULT_DTW_WEIGHTS: np.ndarray = np.array([1, 1, 2])
 
-# Maps the system keys used on the command line and as experiment/eval
-# directory names onto the labels used in the paper's tables and figures.
-# Anything not listed here is displayed under its own key.
+# System keys double as command-line names and as experiment/eval directory
+# names. Most read the same in the paper; the few that do not are listed here,
+# and anything absent is displayed under its own key.
 SYSTEM_DISPLAY_NAMES: dict = {
-    "DTW": "DTW",
-    "MATCH": "MATCH",
-    "OLTW": "OLTW",
+    "SOA_MONOTONIC": "SOA-Mono",
     "OLTW_GLOBAL": "OLTW-Global",
     "OLTW_OURS": "OLTW-Ours",
     "MM_DIXON": "MM-Dixon",
     "MM_ARZT": "MM-Arzt",
-    "NOA": "SOA",
-    "NOA_MONOTONIC": "SOA-Mono",
 }
 
 

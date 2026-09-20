@@ -387,7 +387,7 @@ def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
                 "hop_length": constants.DEFAULT_HOP_LENGTH,
                 "distance_metric": "cosine"
             }
-        elif system in ['NOA', 'NOA_MONOTONIC']:
+        elif system in ['SOA', 'SOA_MONOTONIC']:
             configs[system] = {
                 "steps": constants.DEFAULT_DTW_STEPS.tolist(),
                 "weights": constants.DEFAULT_DTW_WEIGHTS.tolist(),
@@ -396,7 +396,7 @@ def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
                 "hop_length": constants.DEFAULT_HOP_LENGTH,
                 "norm": True,
                 "distance_metric": "cosine",
-                "monotonic": system == 'NOA_MONOTONIC'
+                "monotonic": system == 'SOA_MONOTONIC'
             }
         elif system == 'MATCH':
             configs[system] = {
@@ -527,14 +527,14 @@ def cmd_experiment(args, logger: logging.Logger):
     if 'MATCH' in system_configs and args.benchmark == 'test':
         system_configs['MATCH']['audio_root'] = AUDIO_BASE_ROOT
     
-    # Ensure NOA runs before NOA_MONOTONIC when both are requested
+    # Ensure SOA runs before SOA_MONOTONIC when both are requested
     systems_order = []
-    if 'NOA' in args.systems:
-        systems_order.append('NOA')
-    if 'NOA_MONOTONIC' in args.systems:
-        systems_order.append('NOA_MONOTONIC')
+    if 'SOA' in args.systems:
+        systems_order.append('SOA')
+    if 'SOA_MONOTONIC' in args.systems:
+        systems_order.append('SOA_MONOTONIC')
     for s in args.systems:
-        if s not in ('NOA', 'NOA_MONOTONIC'):
+        if s not in ('SOA', 'SOA_MONOTONIC'):
             systems_order.append(s)
     
     jobs = getattr(args, 'jobs', 1)
@@ -563,24 +563,24 @@ def cmd_experiment(args, logger: logging.Logger):
             logger.error(f"No configuration found for system: {system}")
             continue
         
-        if system == 'NOA_MONOTONIC':
-            # If NOA paths exist, convert them to monotonic instead of recomputing
-            noa_dir = os.path.join(exp_dir, 'NOA')
-            noa_mono_dir = os.path.join(exp_dir, 'NOA_MONOTONIC')
+        if system == 'SOA_MONOTONIC':
+            # If SOA paths exist, convert them to monotonic instead of recomputing
+            soa_dir = os.path.join(exp_dir, 'SOA')
+            soa_mono_dir = os.path.join(exp_dir, 'SOA_MONOTONIC')
             scenario_ids = [d for d in os.listdir(scenarios_dir)
                            if os.path.isdir(os.path.join(scenarios_dir, d))]
             converted = 0
             for scenario_id in scenario_ids:
-                noa_hyp = os.path.join(noa_dir, scenario_id, 'hyp.npy')
-                if os.path.isfile(noa_hyp):
-                    path = np.load(noa_hyp)
+                soa_hyp = os.path.join(soa_dir, scenario_id, 'hyp.npy')
+                if os.path.isfile(soa_hyp):
+                    path = np.load(soa_hyp)
                     path_mono = path_to_monotonic(path)
-                    out_path = os.path.join(noa_mono_dir, scenario_id)
+                    out_path = os.path.join(soa_mono_dir, scenario_id)
                     os.makedirs(out_path, exist_ok=True)
                     np.save(os.path.join(out_path, 'hyp.npy'), path_mono)
                     converted += 1
             if converted:
-                logger.info(f"Generated NOA_MONOTONIC from existing NOA paths for {converted} scenarios")
+                logger.info(f"Generated SOA_MONOTONIC from existing SOA paths for {converted} scenarios")
         
         # Convert lists back to numpy arrays for DTW steps/weights
         kwargs = system_configs[system].copy()
@@ -683,14 +683,14 @@ def main():
         epilog="""
 Examples:
   # Run full pipeline with default settings
-  python benchmark.py run --benchmark train_small --systems DTW NOA
+  python benchmark.py run --benchmark train_small --systems DTW SOA
   
   # Run full pipeline with custom config
   python benchmark.py run --benchmark train_small --config configs/my_config.json
   
   # Run individual steps
   python benchmark.py prepare --benchmark train_small
-  python benchmark.py features --benchmark train_small --systems DTW NOA
+  python benchmark.py features --benchmark train_small --systems DTW SOA
   python benchmark.py experiment --benchmark train_small --systems OLTW_GLOBAL --config configs/oltw_config.json
   python benchmark.py evaluate --benchmark train_small
         """
@@ -717,7 +717,7 @@ Examples:
                                    choices=['train_small', 'train', 'test'],
                                    help='Benchmark to run experiments on')
     experiment_parser.add_argument('--systems', nargs='+', required=True,
-                                   help='Systems to run (DTW, NOA, NOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
+                                   help='Systems to run (DTW, SOA, SOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
     experiment_parser.add_argument('--config', type=str,
                                    help='JSON configuration file for system parameters')
     experiment_parser.add_argument('--jobs', type=int, default=1,
@@ -737,7 +737,7 @@ Examples:
                             choices=['train_small', 'train', 'test'],
                             help='Benchmark to run')
     run_parser.add_argument('--systems', nargs='+', required=True,
-                            help='Systems to run (DTW, NOA, NOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
+                            help='Systems to run (DTW, SOA, SOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
     run_parser.add_argument('--config', type=str,
                             help='JSON configuration file for system parameters')
     run_parser.add_argument('--jobs', type=int, default=1,

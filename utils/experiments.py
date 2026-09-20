@@ -88,7 +88,7 @@ def _run_scenario(task):
 class ExperimentRunner:
     def __init__(self, exp_type, kwargs, logger=None):
         """
-        exp_type: experiment to run. Currently accepts DTW, NOA, or MATCH
+        exp_type: experiment to run. Currently accepts DTW, SOA, or MATCH
         kwargs: arguments needed to pass in for the experiment
         logger: optional logger instance
         """
@@ -116,8 +116,8 @@ class ExperimentRunner:
         # run experiment
         if self.exp_type == "DTW" or self.exp_type.startswith("DTW"):
             self.run_dtw(scenarios_dir, out_path)
-        elif self.exp_type in ("NOA", "NOA_MONOTONIC") or self.exp_type.startswith("NOA"):
-            self.run_noa(scenarios_dir, out_path)
+        elif self.exp_type in ("SOA", "SOA_MONOTONIC") or self.exp_type.startswith("SOA"):
+            self.run_soa(scenarios_dir, out_path)
         elif self.exp_type == "MATCH":
             self.run_match(scenarios_dir, out_path)
         elif self.exp_type == "OLTW":
@@ -218,9 +218,9 @@ class ExperimentRunner:
         np.save(os.path.join(out_path, "hyp.npy"), wp_sec)
         
         
-    def run_noa(self, scenarios_dir, out_path, monotonic = False):
+    def run_soa(self, scenarios_dir, out_path, monotonic = False):
         """
-        Runs NOA experiment for the given scenario and stores results to output path.
+        Runs SOA experiment for the given scenario and stores results to output path.
         """
         # generate out_path
         os.makedirs(out_path, exist_ok=True)
@@ -228,7 +228,7 @@ class ExperimentRunner:
         # load query and reference features
         query_feat, reference_feat = self.load_feat(scenarios_dir)
         
-        # run NOA
+        # run SOA
         norm = self.kwargs['norm']
         monotonic = self.kwargs['monotonic']
         wp = run_offline_noa(reference_feat, query_feat, steps = self.kwargs['steps'], weights = self.kwargs['weights'], cost_metric = self.kwargs['distance_metric'], monotonic = monotonic, normalize = norm)
@@ -255,7 +255,7 @@ class ExperimentRunner:
         window_steps = self.kwargs['window_steps']
         DTW_weights = self.kwargs['DTW_weights']
 
-        # run NOA
+        # run SOA
         wp = run_offline_oltw(reference_feat, query_feat, c=self.kwargs['c'], DTW_steps=DTW_steps, window_steps=window_steps, DTW_weights=DTW_weights, cost_metric=self.kwargs['distance_metric'])
         
         # convert to seconds
