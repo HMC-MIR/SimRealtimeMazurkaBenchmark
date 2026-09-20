@@ -1,4 +1,6 @@
+import logging
 import os
+
 import numpy as np
 import pickle
 
@@ -31,16 +33,16 @@ def getGroundTruthTimestamps(query_annot_file, ref_annot_file):
     return gt
 
 
-import logging
-
-def eval_alignment_single(hypfile, query_annot_file, ref_annot_file, outfile = None, logger: logging.Logger = None):
+def eval_alignment_single(hypfile, query_annot_file, ref_annot_file, logger: logging.Logger = None):
+    '''Returns the signed alignment error at each annotated beat, or None if the
+    scenario could not be scored.'''
     # check if hypfile exists
     if not os.path.exists(hypfile):
         if logger:
             logger.warning(f'{hypfile} does not exist')
         else:
             print(f'{hypfile} does not exist')
-        return None, None
+        return None
 
     # check annotation files
     if not os.path.exists(query_annot_file):
@@ -48,14 +50,14 @@ def eval_alignment_single(hypfile, query_annot_file, ref_annot_file, outfile = N
             logger.warning(f'{query_annot_file} does not exist')
         else:
             print(f'{query_annot_file} does not exist')
-        return None, None
+        return None
         
     if not os.path.exists(ref_annot_file):
         if logger:
             logger.warning(f'{ref_annot_file} does not exist')
         else:
             print(f'{ref_annot_file} does not exist')
-        return None, None
+        return None
 
     gt = getGroundTruthTimestamps(query_annot_file, ref_annot_file)
     if gt.shape[0] == 0:
@@ -63,7 +65,7 @@ def eval_alignment_single(hypfile, query_annot_file, ref_annot_file, outfile = N
             logger.warning(f'No measures to evaluate in {hypfile}')
         else:
             print(f'No measures to evaluate in {hypfile}')
-        return None, None
+        return None
     
     hypalign = np.load(hypfile)
     
@@ -78,7 +80,7 @@ def eval_alignment_single(hypfile, query_annot_file, ref_annot_file, outfile = N
             print(f"Error evaluating {hypfile}: {e}")
         return None
 
-def eval_alignment_batch(exp_dir, scenarios_dir, out_dir, tsm = False, lag = 0, hypFileExt = '', logger: logging.Logger = None):
+def eval_alignment_batch(exp_dir, scenarios_dir, out_dir, logger: logging.Logger = None):
     # evaluate all scenarios
     d = {}
     
@@ -100,13 +102,7 @@ def eval_alignment_batch(exp_dir, scenarios_dir, out_dir, tsm = False, lag = 0, 
         if not os.path.isdir(os.path.join(scenarios_dir, scenario_id)):
             continue
             
-        if tsm:
-            if lag == 0:
-                hypFile = f'{exp_dir}/{scenario_id}/tsm{hypFileExt}.npy'
-            else: # if lag is not 0, the hypothesis file is a TSM path file with the lag
-                hypFile = f'{exp_dir}/{scenario_id}/tsm_lag{lag}{hypFileExt}.npy'
-        else:
-            hypFile = f'{exp_dir}/{scenario_id}/hyp{hypFileExt}.npy'
+        hypFile = f'{exp_dir}/{scenario_id}/hyp.npy'
             
         query_annot_file = f'{scenarios_dir}/{scenario_id}/query.beats'
         ref_annot_file = f'{scenarios_dir}/{scenario_id}/ref.beats'

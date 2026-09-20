@@ -17,6 +17,33 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
+
+def _limit_worker_threads():
+    """
+    Caps the BLAS/numba thread pools to one thread per process when running with
+    multiple workers, so that N worker processes do not each start a pool sized for
+    the whole machine.
+
+    Must run before numba is imported: numba snapshots the environment at import
+    time, and changing NUMBA_NUM_THREADS afterwards makes every JIT compilation in a
+    forked worker raise "Cannot set NUMBA_NUM_THREADS to a different value once the
+    threads have been launched". argparse has not run yet, so --jobs is read straight
+    off the command line.
+    """
+    jobs = 1
+    if '--jobs' in sys.argv:
+        try:
+            jobs = int(sys.argv[sys.argv.index('--jobs') + 1])
+        except (IndexError, ValueError):
+            return
+    if jobs > 1:
+        for var in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
+                    'NUMEXPR_NUM_THREADS', 'NUMBA_NUM_THREADS'):
+            os.environ.setdefault(var, '1')
+
+
+_limit_worker_threads()
+
 import numpy as np
 import librosa as lb
 from tqdm import tqdm
@@ -403,13 +430,22 @@ def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
                 "window_steps": [[1, 1], [1, 0], [0, 1]]
             }
         elif system.startswith('MM_'):
+            if system.startswith('MM_ARZT'):
+                method = 'arzt'
+            elif system.startswith('MM_HMM'):
+                method = 'hmm'
+            else:
+                method = 'dixon'
             configs[system] = {
-                "method": 'arzt' if system.startswith('MM_ARZT') else 'dixon',
+                "method": method,
                 "feat_dir": f"{FEAT_DIR}/chroma_stft_norm2",
                 "sr": constants.DEFAULT_SR,
                 "hop_length": constants.DEFAULT_HOP_LENGTH,
                 "distance_metric": "cosine",
-                "window_size": 10
+                "window_size": 10,
+                # MM_DIXON_RAW is the same follower as MM_DIXON, reporting Dixon's
+                # alignment_path unreduced. See matchmaker_worker.READOUTS.
+                "readout": "raw" if system.endswith('_RAW') else "reduced"
             }
             if system.startswith('MM_ARZT'):
                 configs[system]["step_size"] = 3
@@ -501,13 +537,22 @@ def cmd_experiment(args, logger: logging.Logger):
         if s not in ('NOA', 'NOA_MONOTONIC'):
             systems_order.append(s)
     
+    jobs = getattr(args, 'jobs', 1)
+    resume = getattr(args, 'resume', False)
+
+    # Thread pools were already capped at import time by _limit_worker_threads().
+    if jobs > 1:
+        logger.info(f"Running experiments with {jobs} worker processes")
+
     # Ensure experiment directory exists; clean only the systems being run
     os.makedirs(exp_dir, exist_ok=True)
     for system in systems_order:
         system_dir = os.path.join(exp_dir, system)
-        if os.path.exists(system_dir):
+        if os.path.exists(system_dir) and not resume:
             logger.info(f"Cleaning experiment directory for {system}: {system_dir}")
             shutil.rmtree(system_dir)
+        elif os.path.exists(system_dir):
+            logger.info(f"Resuming {system}: keeping existing results in {system_dir}")
         os.makedirs(system_dir, exist_ok=True)
     
     # Run experiments for each system
@@ -549,7 +594,7 @@ def cmd_experiment(args, logger: logging.Logger):
             kwargs['window_steps'] = np.array(kwargs['window_steps'])
         
         runner = ExperimentRunner(system, kwargs, logger=logger)
-        runner.run_batch(scenarios_dir, exp_dir)
+        runner.run_batch(scenarios_dir, exp_dir, jobs=jobs)
         
         logger.info(f"{system} experiments complete")
     
@@ -584,7 +629,7 @@ def cmd_evaluate(args, logger: logging.Logger):
         logger.info(f"Evaluating {system}")
         system_exp_dir = os.path.join(exp_dir, system)
         system_eval_dir = os.path.join(eval_dir, system)
-        
+
         eval_tools.eval_alignment_batch(system_exp_dir, scenarios_dir, system_eval_dir, logger=logger)
         logger.info(f"{system} evaluation complete")
     
@@ -675,6 +720,10 @@ Examples:
                                    help='Systems to run (DTW, NOA, NOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
     experiment_parser.add_argument('--config', type=str,
                                    help='JSON configuration file for system parameters')
+    experiment_parser.add_argument('--jobs', type=int, default=1,
+                                   help='Number of scenarios to run in parallel (default: 1, serial)')
+    experiment_parser.add_argument('--resume', action='store_true',
+                                   help='Keep existing results instead of clearing the system directory')
     
     # Evaluate command
     evaluate_parser = subparsers.add_parser('evaluate', help='Evaluate experiments')
@@ -691,6 +740,10 @@ Examples:
                             help='Systems to run (DTW, NOA, NOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
     run_parser.add_argument('--config', type=str,
                             help='JSON configuration file for system parameters')
+    run_parser.add_argument('--jobs', type=int, default=1,
+                            help='Number of scenarios to run in parallel (default: 1, serial)')
+    run_parser.add_argument('--resume', action='store_true',
+                            help='Keep existing results instead of clearing the system directory')
     
     args = parser.parse_args()
     

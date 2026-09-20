@@ -1,5 +1,6 @@
 import os
 import logging
+import multiprocessing
 import subprocess
 
 import numpy as np
@@ -9,7 +10,6 @@ from tqdm import tqdm
 import vamp
 import pandas as pd
 
-from noa import compute_cosine_distance, compute_euclidean_distance
 from utils.oltw import online_processing
 from utils.matchmaker_baseline import run_matchmaker_alignment
 from online_alignment import run_offline_oltw, run_offline_noa
@@ -65,6 +65,26 @@ def parse_match_outfile(infile):
             d = pd.read_csv(infile, header=None)
             return np.vstack((d.loc[:,1], d.loc[:,2]))
 
+def _run_scenario(task):
+    """
+    Runs one scenario in a worker process.
+
+    Module level, and rebuilds the runner from (exp_type, kwargs), so that nothing
+    unpicklable (such as a logger) has to cross the process boundary.
+
+    Inputs
+    task: a tuple of (exp_type, kwargs, scenario_path, out_dir)
+
+    Returns a tuple of (scenario_path, error string or None).
+    """
+    exp_type, kwargs, scenario_path, out_dir = task
+    try:
+        ExperimentRunner(exp_type, kwargs).run(scenario_path, out_dir)
+        return scenario_path, None
+    except Exception as e:
+        return scenario_path, repr(e)
+
+
 class ExperimentRunner:
     def __init__(self, exp_type, kwargs, logger=None):
         """
@@ -109,24 +129,53 @@ class ExperimentRunner:
         else:
             raise ValueError(f"Invalid experiment type: {self.exp_type}")
             
-    def run_batch(self, scenarios_root, out_dir):
+    def _log_scenario_error(self, scenario_path, error, exc_info=False):
+        """
+        Reports a per-scenario failure without aborting the batch.
+        """
+        message = f"Error running experiment for {scenario_path}: {error}"
+        if self.logger:
+            self.logger.error(message, exc_info=exc_info)
+        else:
+            print(message)
+
+    def run_batch(self, scenarios_root, out_dir, jobs=1):
         """
         Runs experiments for all scenarios under scenarios_root.
+
+        Inputs
+        scenarios_root: directory holding one subdirectory per scenario
+        out_dir: directory to write results to
+        jobs: number of worker processes. 1 runs serially in this process.
         """
         if not os.path.isdir(scenarios_root):
             raise ValueError(f"{scenarios_root} is not a directory")
-        
-        for scenario_dir in tqdm(os.listdir(scenarios_root)):
-            scenario_path = os.path.join(scenarios_root, scenario_dir)
-            if os.path.isdir(scenario_path):
+
+        scenario_paths = sorted(
+            os.path.join(scenarios_root, d)
+            for d in os.listdir(scenarios_root)
+            if os.path.isdir(os.path.join(scenarios_root, d))
+        )
+
+        if jobs <= 1:
+            for scenario_path in tqdm(scenario_paths):
                 try:
                     self.run(scenario_path, out_dir)
                 except Exception as e:
-                    if self.logger:
-                        self.logger.error(f"Error running experiment for {scenario_path}: {e}", exc_info=True)
-                    else:
-                        print(f"Error running experiment for {scenario_path}: {e}")
+                    self._log_scenario_error(scenario_path, e, exc_info=True)
                     continue
+            return
+
+        # Scenarios are independent: each writes only its own hyp.npy and reads
+        # shared read-only feature files, so they parallelise without coordination.
+        # chunksize=1 because scenario durations vary widely.
+        tasks = [(self.exp_type, self.kwargs, path, out_dir) for path in scenario_paths]
+        with multiprocessing.Pool(processes=jobs) as pool:
+            for scenario_path, error in tqdm(
+                pool.imap_unordered(_run_scenario, tasks, chunksize=1), total=len(tasks)
+            ):
+                if error is not None:
+                    self._log_scenario_error(scenario_path, error)
                 
     def load_feat(self, scenarios_dir):
         """
@@ -238,6 +287,7 @@ class ExperimentRunner:
             window_size=self.kwargs['window_size'],
             distance_metric=self.kwargs['distance_metric'],
             step_size=self.kwargs.get('step_size'),
+            readout=self.kwargs.get('readout', 'reduced'),
         )
 
     def run_match(self, scenarios_dir, out_path):

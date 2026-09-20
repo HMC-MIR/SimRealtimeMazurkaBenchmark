@@ -1,0 +1,15 @@
+# Separate environment for the MatchMaker OLTW baselines (MM_DIXON, MM_ARZT).
+# pymatchmaker pins numpy<2, which is incompatible with the main environment, so
+# those systems run out-of-process. utils/matchmaker_baseline.py locates this
+# interpreter via $MATCHMAKER_PYTHON, falling back to a sibling env named
+# "matchmaker" of the currently active one.
+name: matchmaker
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy<2
+  - pip
+  - pip:
+      - pymatchmaker

@@ -3,7 +3,6 @@ import os
 from shutil import which
 import re
 import numpy as np
-import system_utils
 
 def verify_oltw_installation(jar_path):
     '''Verifies that all tools needed to run OLTW are present

@@ -38,7 +38,7 @@ def verify_matchmaker_installation(python_path=None):
 
 def run_matchmaker_alignment(ref_feat_path, query_feat_path, out_file, method, sr, hop_length,
                              window_size, distance_metric, step_size=None, ref_start_sec=0.0,
-                             python_path=None):
+                             readout='reduced', python_path=None):
     '''
     Runs a MatchMaker OLTW baseline in the matchmaker conda env and saves the alignment.
 
@@ -53,6 +53,7 @@ def run_matchmaker_alignment(ref_feat_path, query_feat_path, out_file, method, s
     distance_metric: 'cosine' or 'euclidean'
     step_size: max reference frames advanced per query frame (arzt only)
     ref_start_sec: offset to chop off the reference and add back to the result
+    readout: 'reduced' or 'raw' (dixon only). See matchmaker_worker.READOUTS.
     python_path: path to the matchmaker env python interpreter
     '''
     python_cmd = verify_matchmaker_installation(python_path)
@@ -68,6 +69,7 @@ def run_matchmaker_alignment(ref_feat_path, query_feat_path, out_file, method, s
         '--window-size', str(window_size),
         '--distance-metric', distance_metric,
         '--ref-start-sec', str(ref_start_sec),
+        '--readout', readout,
     ]
     if step_size is not None:
         cmd += ['--step-size', str(step_size)]

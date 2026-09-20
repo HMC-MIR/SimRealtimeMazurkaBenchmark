@@ -1,49 +1,40 @@
 # Configuration Files
 
-This directory contains JSON configuration files for the benchmark pipeline.
+JSON files passed to `benchmark.py --config`. Each top-level key is a system name; its
+value is the keyword arguments handed to that system's runner. A key becomes its own
+experiment directory, so the same algorithm can be run several times under different
+names.
 
 ## Files
 
-### `default_systems.json`
-Default configurations for all supported systems:
-- **DTW**: Dynamic Time Warping
-- **NOA**: Normalized Online Alignment
-- **NOA_MONOTONIC**: Normalized Online Alignment with monotonic constraint
-- **MATCH**: MATCH algorithm (requires Java)
-- **OLTW**: Online Time Warping (using Java implementation)
-- **OLTW_GLOBAL**: Global OLTW (custom Python implementation)
-- **MM_DIXON**, **MM_ARZT**: MatchMaker OLTW baselines (requires the `matchmaker` conda env)
+| file | contents |
+|---|---|
+| `default_systems.json` | the parameters used for the reported results |
+| `oltw_global_examples.json` | OLTW-Global step-pattern sweep, settings A-F (`c: null`) |
+| `oltw_examples.json` | the same sweep for the windowed variant (`c: 500`) |
+| `weight_sweep_examples.json` | DTW/SOA step-weight sweep used during tuning |
 
-### `oltw_global_examples.json`
-Example OLTW_GLOBAL configurations with different parameter settings (A-F) as described in notebook 02.
-
-## Usage
-
-### Using Default Configurations
-If no config file is specified, the script will use default configurations:
+If `--config` is omitted, `get_default_configs()` in `benchmark.py` supplies equivalent
+defaults, so the common case needs no config file at all:
 
 ```bash
 python benchmark.py run --benchmark train_small --systems DTW NOA
 ```
 
-### Using Pre-defined Configurations
-You can use one of the provided config files:
+## Usage
 
 ```bash
-python benchmark.py experiment --benchmark train_small --config configs/default_systems.json
-```
+# reported configuration
+python benchmark.py experiment --benchmark test --config configs/default_systems.json \
+  --systems DTW NOA NOA_MONOTONIC OLTW_GLOBAL OLTW_OURS
 
-### Using OLTW_GLOBAL Presets
-To run specific OLTW_GLOBAL settings:
-
-```bash
+# a parameter sweep: each key lands in its own experiment directory
 python benchmark.py experiment --benchmark train_small \
   --systems OLTW_GLOBAL_A OLTW_GLOBAL_B \
   --config configs/oltw_global_examples.json
 ```
 
-### Creating Custom Configurations
-Create your own JSON file with system configurations. Example:
+Custom configurations are just another JSON file:
 
 ```json
 {
@@ -60,36 +51,42 @@ Create your own JSON file with system configurations. Example:
 }
 ```
 
-Then run:
+The runner picks the algorithm from the *name*, not the config: keys starting with `DTW`
+run offline DTW, `NOA` run SOA, `MM_` run a MatchMaker baseline, and anything else
+containing `OLTW_` runs our OLTW. See `ExperimentRunner.run` in `utils/experiments.py`.
+An optional `_description` field is ignored by the runner and is there to document a setting.
 
-```bash
-python benchmark.py experiment --benchmark train_small \
-  --systems MY_CUSTOM_SYSTEM \
-  --config my_custom_config.json
-```
+## Parameters
 
-## Parameter Descriptions
+### Common
+- `feat_dir`: directory of precomputed features
+- `sr`: sample rate (default 22050)
+- `hop_length`: hop length in samples (default 512)
+- `distance_metric`: `cosine` or `euclidean`
 
-### Common Parameters
-- `feat_dir`: Directory containing precomputed features
-- `sr`: Sample rate (default: 22050 Hz)
-- `hop_length`: Hop length for feature extraction (default: 512 samples)
-- `distance_metric`: Distance metric ("cosine" or "euclidean")
+### DTW / SOA (`DTW*`, `NOA*`)
+- `steps`: step pattern, `[[x1, y1], [x2, y2], ...]`
+- `weights`: one weight per step
+- `norm`: normalize the accumulated cost matrix (SOA only)
+- `monotonic`: force predictions never to move backwards (SOA only)
 
-### DTW/NOA Parameters
-- `steps`: DTW step pattern as 2D array [[x1,y1], [x2,y2], ...]
-- `weights`: Step weights
+### OLTW (`OLTW_GLOBAL*`, `OLTW_OURS*`)
+- `c`: constraint window in frames, or `null` for an unconstrained search
+- `DTW_steps`, `DTW_weights`: step pattern used inside the alignment
+- `window_steps`: step pattern governing how the search window advances
 
-### MatchMaker Parameters
+### MatchMaker (`MM_*`)
 - `method`: `dixon` or `arzt`
 - `window_size`: search window in seconds
 - `step_size`: max reference frames advanced per query frame (`arzt` only)
+- `readout`: `reduced` or `raw` (`dixon` only); see `matchmaker_worker.READOUTS`
 
-These run in a separate conda env because pymatchmaker pins numpy<2. The env is found
-via `$MATCHMAKER_PYTHON`, or as a sibling env named `matchmaker` of the active one.
+These run in a separate conda env because `pymatchmaker` pins `numpy<2`. The interpreter is
+found via `$MATCHMAKER_PYTHON`, or as a sibling env named `matchmaker` of the active one.
+See the main README.
 
-### OLTW_GLOBAL Parameters
-- `c`: Constraint window (null for global alignment)
-- `DTW_steps`: DTW step pattern for alignment
-- `DTW_weights`: DTW step weights
-- `window_steps`: Step pattern for window progression
+### MATCH (`MATCH`)
+- `audio_root`: directory holding the source recordings
+
+Runs Dixon's MATCH through `sonic-annotator` and the match-vamp-plugin, at the sample rate
+and hop length from the original paper (44100 / 882) with Euclidean distance.
