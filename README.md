@@ -61,7 +61,21 @@ into `Chopin_Mazurkas/`, so they must be regenerated after cloning or moving the
 | `test` | Op. 24 No. 2, Op. 30 No. 2, Op. 68 No. 3 | ~3.8k | reported results |
 
 Each benchmark writes to its own set of directories (`scenarios*/`, `experiments*/`,
-`eval*/`); see `BENCHMARK_CONFIGS` at the top of `benchmark.py`.
+`eval*/`); see `BENCHMARK_CONFIGS` in `corpora/benchmarks.py`.
+
+### Adding a benchmark
+
+`corpora/` holds everything that knows where data lives. A corpus records the audio
+and annotation roots for one collection of recordings; a benchmark names a corpus plus
+the pieces to draw from, and the directories to write to. Nothing downstream of
+scenario generation is corpus-aware: the systems, `eval_tools.py`, and the notebooks
+see only the per-scenario symlinks.
+
+So a new benchmark over an existing corpus is one entry in `BENCHMARK_CONFIGS`, and a
+new corpus is one `Corpus` in `corpora/` plus its registry entry. Benchmarks that
+declare `piece_roots` enumerate their recordings from disk and write the result back to
+`cfg/`; the older `train` benchmarks instead read a checked-in list, and set
+`default_piece_root` because those lists store bare recording names.
 
 ## Systems
 

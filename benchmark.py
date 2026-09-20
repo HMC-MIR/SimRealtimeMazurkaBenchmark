@@ -49,6 +49,8 @@ import librosa as lb
 from tqdm import tqdm
 
 # Import local modules
+import corpora
+from corpora.benchmarks import BENCHMARK_CONFIGS, get_corpus
 import utils.constants as constants
 from utils.experiments import ExperimentRunner
 from utils.match_features import extract_match_features
@@ -59,40 +61,9 @@ import eval_tools
 # Configuration and Constants
 # ============================================================================
 
-BENCHMARK_CONFIGS = {
-    'train_small': {
-        'train_file': 'cfg/mazurkas.train.pkl',
-        'pair_file': 'cfg/mazurkas.train_pairs.pkl',
-        'scenarios_dir': 'scenarios',
-        'experiments_dir': 'experiments',
-        'eval_dir': 'eval',
-    },
-    'train': {
-        'train_file': 'cfg/mazurkas.train_large.pkl',
-        'pair_file': 'cfg/mazurkas.train_pairs_large.pkl',
-        'scenarios_dir': 'scenarios_train',
-        'experiments_dir': 'experiments_train',
-        'eval_dir': 'eval_train',
-    },
-    'test': {
-        'train_file': 'cfg/mazurkas.test.pkl',
-        'pair_file': 'cfg/mazurkas.test_pairs.pkl',
-        'scenarios_dir': 'scenarios_test',
-        'experiments_dir': 'experiments_test',
-        'eval_dir': 'eval_test',
-    },
-}
+# BENCHMARK_CONFIGS and get_corpus live in corpora.benchmarks, so that the
+# evaluation notebooks can import them without pulling in librosa and numba.
 
-AUDIO_BASE_ROOT = "Chopin_Mazurkas/wav_22050_mono"
-ANNOT_BASE_ROOT = "Chopin_Mazurkas/annotations_beat"
-TRAIN_PIECE_ROOT = "Chopin_Op017No4"
-TEST_PIECE_ROOTS = [
-    "Chopin_Op024No2",
-    "Chopin_Op030No2",
-    "Chopin_Op068No3",
-]
-AUDIO_ROOT = f"{AUDIO_BASE_ROOT}/{TRAIN_PIECE_ROOT}"
-ANNOT_ROOT = f"{ANNOT_BASE_ROOT}/{TRAIN_PIECE_ROOT}"
 FEAT_DIR = "features"
 
 
@@ -161,13 +132,14 @@ def validate_file(filepath: str, logger: logging.Logger) -> bool:
     return True
 
 
-def generate_scenarios(outdir: str, pairs_list: List[tuple], logger: logging.Logger):
+def generate_scenarios(outdir: str, pairs_list: List[tuple], corpus: corpora.Corpus, logger: logging.Logger):
     """
     Generate all possible alignment scenarios for a given output directory.
     
     Args:
         outdir: output directory
         pairs_list: list of pairs of recordings to process. Each pair is a tuple of (query, reference)
+        corpus: the corpus the recordings come from
         logger: logger instance
     """
     logger.info(f"Generating scenarios in {outdir}/")
@@ -183,10 +155,10 @@ def generate_scenarios(outdir: str, pairs_list: List[tuple], logger: logging.Log
     
     for i, (query, ref) in enumerate(tqdm(pairs_list, desc="Creating scenarios")):
         # Define source paths
-        query_path = os.path.join(cwd, get_audio_path(query))
-        ref_path = os.path.join(cwd, get_audio_path(ref))
-        query_annot_path = os.path.join(cwd, get_annotation_path(query))
-        ref_annot_path = os.path.join(cwd, get_annotation_path(ref))
+        query_path = os.path.join(cwd, corpus.audio_path(query))
+        ref_path = os.path.join(cwd, corpus.audio_path(ref))
+        query_annot_path = os.path.join(cwd, corpus.annot_path(query))
+        ref_annot_path = os.path.join(cwd, corpus.annot_path(ref))
         
         # Validate all source files
         if not all([
@@ -225,52 +197,8 @@ def generate_scenarios(outdir: str, pairs_list: List[tuple], logger: logging.Log
     logger.info(f"Generated {valid_scenarios_count} scenarios (skipped {len(pairs_list) - valid_scenarios_count})")
 
 
-def get_audio_path(piece_id: str) -> str:
-    """Resolve audio path for both train IDs and piece-prefixed test IDs."""
-    if "/" in piece_id:
-        return f"{AUDIO_BASE_ROOT}/{piece_id}.wav"
-    return f"{AUDIO_ROOT}/{piece_id}.wav"
-
-
-def get_annotation_path(piece_id: str) -> str:
-    """Resolve beat annotation path for both train IDs and piece-prefixed test IDs."""
-    if "/" in piece_id:
-        return f"{ANNOT_BASE_ROOT}/{piece_id}.beat"
-    return f"{ANNOT_ROOT}/{piece_id}.beat"
-
-
-def build_test_dataset(logger: logging.Logger) -> Tuple[List[str], List[Tuple[str, str]]]:
-    """
-    Build test piece IDs and one-directional within-piece alignment pairs.
-
-    Returns:
-        piece_ids: list like Chopin_Op024No2/<performance_id>
-        pairs_list: list of (query, reference) with one direction only (i < j)
-    """
-    piece_ids: List[str] = []
-    pairs_list: List[Tuple[str, str]] = []
-
-    for piece_root in TEST_PIECE_ROOTS:
-        piece_audio_dir = Path(AUDIO_BASE_ROOT) / piece_root
-        if not piece_audio_dir.exists():
-            logger.warning(f"Test audio directory not found: {piece_audio_dir}")
-            continue
-
-        local_piece_ids = sorted([f"{piece_root}/{p.stem}" for p in piece_audio_dir.glob("*.wav")])
-        if len(local_piece_ids) < 2:
-            logger.warning(f"Found fewer than 2 recordings in {piece_audio_dir}; no pairs will be created")
-
-        piece_ids.extend(local_piece_ids)
-        for i in range(len(local_piece_ids)):
-            for j in range(i + 1, len(local_piece_ids)):
-                pairs_list.append((local_piece_ids[i], local_piece_ids[j]))
-
-    logger.info(f"Built test dataset with {len(piece_ids)} recordings and {len(pairs_list)} pairs")
-    return piece_ids, pairs_list
-
-
-def save_test_cfg_files(piece_ids: List[str], pairs_list: List[Tuple[str, str]], config: Dict[str, str], logger: logging.Logger):
-    """Persist test piece IDs and pairs under cfg/."""
+def save_cfg_files(piece_ids: List[str], pairs_list: List[Tuple[str, str]], config: Dict[str, str], logger: logging.Logger):
+    """Persist enumerated piece IDs and pairs under cfg/."""
     cfg_dir = Path(config['train_file']).parent
     cfg_dir.mkdir(parents=True, exist_ok=True)
 
@@ -279,11 +207,39 @@ def save_test_cfg_files(piece_ids: List[str], pairs_list: List[Tuple[str, str]],
     with open(config['pair_file'], 'wb') as f:
         pickle.dump(pairs_list, f)
 
-    logger.info(f"Saved test piece list: {config['train_file']}")
-    logger.info(f"Saved test pairs list: {config['pair_file']}")
+    logger.info(f"Saved piece list: {config['train_file']}")
+    logger.info(f"Saved pairs list: {config['pair_file']}")
 
 
-def compute_chroma_stft_features(piece_ids: List[str], logger: logging.Logger):
+def resolve_dataset(config: Dict[str, Any], logger: logging.Logger) -> Tuple[corpora.Corpus, List[str], List[Tuple[str, str]]]:
+    """
+    Get the corpus, recording list, and pair list for a benchmark.
+
+    Benchmarks that declare 'piece_roots' are enumerated from disk and the
+    result is written back to cfg/ for reproducibility. The rest read their
+    checked-in lists from cfg/.
+    """
+    corpus = get_corpus(config)
+
+    if 'piece_roots' in config:
+        piece_ids, pairs_list = corpora.build_dataset(corpus, config['piece_roots'], logger)
+        save_cfg_files(piece_ids, pairs_list, config, logger)
+        return corpus, piece_ids, pairs_list
+
+    for key, label in (('train_file', 'piece list'), ('pair_file', 'pair list')):
+        if not os.path.exists(config[key]):
+            logger.error(f"{label.capitalize()} not found: {config[key]}")
+            logger.error("Please run data preparation first")
+            sys.exit(1)
+
+    with open(config['train_file'], 'rb') as f:
+        piece_ids = pickle.load(f)
+    with open(config['pair_file'], 'rb') as f:
+        pairs_list = pickle.load(f)
+    return corpus, piece_ids, pairs_list
+
+
+def compute_chroma_stft_features(piece_ids: List[str], corpus: corpora.Corpus, logger: logging.Logger):
     """Compute and save chroma_stft features for given pieces."""
     chroma_stft_dir = f"{FEAT_DIR}/chroma_stft_norm2"
     os.makedirs(chroma_stft_dir, exist_ok=True)
@@ -299,7 +255,7 @@ def compute_chroma_stft_features(piece_ids: List[str], logger: logging.Logger):
             logger.debug(f"Skipping {piece_id} - already computed")
             continue
         
-        audio_path = get_audio_path(piece_id)
+        audio_path = corpus.audio_path(piece_id)
         y, sr = lb.load(audio_path)
         chroma_stft_feat = lb.feature.chroma_stft(
             y=y, sr=sr, 
@@ -312,7 +268,7 @@ def compute_chroma_stft_features(piece_ids: List[str], logger: logging.Logger):
     logger.info("Chroma STFT features computed")
 
 
-def compute_match_features(piece_ids: List[str], logger: logging.Logger):
+def compute_match_features(piece_ids: List[str], corpus: corpora.Corpus, logger: logging.Logger):
     """Compute and save match features for given pieces."""
     match_dir = f"{FEAT_DIR}/match"
     os.makedirs(match_dir, exist_ok=True)
@@ -328,7 +284,7 @@ def compute_match_features(piece_ids: List[str], logger: logging.Logger):
             logger.debug(f"Skipping {piece_id} - already computed")
             continue
         
-        audio_path = get_audio_path(piece_id)
+        audio_path = corpus.audio_path(piece_id)
         match_feat = extract_match_features(audio_path)
         np.save(feat_path, match_feat)
     
@@ -339,13 +295,14 @@ def compute_match_features(piece_ids: List[str], logger: logging.Logger):
 # Configuration Management
 # ============================================================================
 
-def load_system_config(config_path: Optional[str], systems: List[str], logger: logging.Logger) -> Dict[str, Dict[str, Any]]:
+def load_system_config(config_path: Optional[str], systems: List[str], corpus: corpora.Corpus, logger: logging.Logger) -> Dict[str, Dict[str, Any]]:
     """
     Load system configuration from JSON file or use defaults.
     
     Args:
         config_path: Path to JSON configuration file, or None for defaults
         systems: List of system names to configure
+        corpus: the corpus being run against, for systems that read audio directly
         logger: Logger instance
     
     Returns:
@@ -359,7 +316,7 @@ def load_system_config(config_path: Optional[str], systems: List[str], logger: l
     
     # Use default configurations
     logger.info("Using default system configurations")
-    return get_default_configs(systems)
+    return get_default_configs(systems, corpus)
 
 
 def path_to_monotonic(path: np.ndarray) -> np.ndarray:
@@ -373,7 +330,7 @@ def path_to_monotonic(path: np.ndarray) -> np.ndarray:
     return out
 
 
-def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
+def get_default_configs(systems: List[str], corpus: corpora.Corpus) -> Dict[str, Dict[str, Any]]:
     """Get default configurations for specified systems."""
     configs = {}
     
@@ -399,8 +356,10 @@ def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
                 "monotonic": system == 'SOA_MONOTONIC'
             }
         elif system == 'MATCH':
+            # MATCH reads audio rather than cached features, so it needs the
+            # root that this benchmark's piece IDs resolve against.
             configs[system] = {
-                "audio_root": AUDIO_ROOT
+                "audio_root": corpus.id_audio_root
             }
         elif system == 'OLTW':
             configs[system] = {
@@ -460,51 +419,23 @@ def get_default_configs(systems: List[str]) -> Dict[str, Dict[str, Any]]:
 def cmd_prepare(args, logger: logging.Logger):
     """Prepare scenarios for the specified benchmark."""
     config = BENCHMARK_CONFIGS[args.benchmark]
+    corpus, _, pairs_list = resolve_dataset(config, logger)
 
-    # Build test data from filesystem and persist to cfg for reproducibility
-    if args.benchmark == 'test':
-        piece_ids, pairs_list = build_test_dataset(logger)
-        save_test_cfg_files(piece_ids, pairs_list, config, logger)
-    else:
-        # Load pair list
-        pair_file = config['pair_file']
-        if not os.path.exists(pair_file):
-            logger.error(f"Pair file not found: {pair_file}")
-            logger.error("Please run data preparation first to create training pairs")
-            sys.exit(1)
+    generate_scenarios(config['scenarios_dir'], pairs_list, corpus, logger)
 
-        with open(pair_file, 'rb') as f:
-            pairs_list = pickle.load(f)
-    
-    # Generate scenarios
-    generate_scenarios(config['scenarios_dir'], pairs_list, logger)
-    
     logger.info("Scenario preparation complete")
 
 
 def cmd_features(args, logger: logging.Logger):
     """Compute features for the specified benchmark and systems."""
     config = BENCHMARK_CONFIGS[args.benchmark]
+    corpus, piece_ids, _ = resolve_dataset(config, logger)
 
-    if args.benchmark == 'test':
-        piece_ids, pairs_list = build_test_dataset(logger)
-        save_test_cfg_files(piece_ids, pairs_list, config, logger)
-    else:
-        # Load piece IDs
-        train_file = config['train_file']
-        if not os.path.exists(train_file):
-            logger.error(f"Training file not found: {train_file}")
-            logger.error("Please run data preparation first to create training set")
-            sys.exit(1)
-
-        with open(train_file, 'rb') as f:
-            piece_ids = pickle.load(f)
-    
     logger.info(f"Processing {len(piece_ids)} pieces for {args.benchmark} benchmark")
-    
+
     # Compute required features based on systems
-    compute_chroma_stft_features(piece_ids, logger)
-    
+    compute_chroma_stft_features(piece_ids, corpus, logger)
+
     logger.info("Feature computation complete")
 
 
@@ -521,11 +452,15 @@ def cmd_experiment(args, logger: logging.Logger):
         sys.exit(1)
     
     # Load system configurations
-    system_configs = load_system_config(args.config, args.systems, logger)
+    corpus = get_corpus(config)
+    system_configs = load_system_config(args.config, args.systems, corpus, logger)
 
-    # MATCH needs a different root when pair IDs are piece-prefixed (test benchmark)
-    if 'MATCH' in system_configs and args.benchmark == 'test':
-        system_configs['MATCH']['audio_root'] = AUDIO_BASE_ROOT
+    # MATCH resolves audio paths itself rather than reading cached features, so
+    # it needs to know the corpus root. Filled in here as well as in
+    # get_default_configs, so that a --config file that omits audio_root still
+    # runs instead of raising KeyError deep in the runner.
+    if 'MATCH' in system_configs:
+        system_configs['MATCH'].setdefault('audio_root', corpus.id_audio_root)
     
     # Ensure SOA runs before SOA_MONOTONIC when both are requested
     systems_order = []
@@ -702,19 +637,19 @@ Examples:
     # Prepare command
     prepare_parser = subparsers.add_parser('prepare', help='Generate scenarios')
     prepare_parser.add_argument('--benchmark', required=True, 
-                                choices=['train_small', 'train', 'test'],
+                                choices=list(BENCHMARK_CONFIGS),
                                 help='Benchmark to prepare')
     
     # Features command
     features_parser = subparsers.add_parser('features', help='Compute features')
     features_parser.add_argument('--benchmark', required=True,
-                                 choices=['train_small', 'train', 'test'],
+                                 choices=list(BENCHMARK_CONFIGS),
                                  help='Benchmark to compute features for')
     
     # Experiment command
     experiment_parser = subparsers.add_parser('experiment', help='Run experiments')
     experiment_parser.add_argument('--benchmark', required=True,
-                                   choices=['train_small', 'train', 'test'],
+                                   choices=list(BENCHMARK_CONFIGS),
                                    help='Benchmark to run experiments on')
     experiment_parser.add_argument('--systems', nargs='+', required=True,
                                    help='Systems to run (DTW, SOA, SOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
@@ -728,13 +663,13 @@ Examples:
     # Evaluate command
     evaluate_parser = subparsers.add_parser('evaluate', help='Evaluate experiments')
     evaluate_parser.add_argument('--benchmark', required=True,
-                                 choices=['train_small', 'train', 'test'],
+                                 choices=list(BENCHMARK_CONFIGS),
                                  help='Benchmark to evaluate')
     
     # Run command (full pipeline)
     run_parser = subparsers.add_parser('run', help='Run full pipeline')
     run_parser.add_argument('--benchmark', required=True,
-                            choices=['train_small', 'train', 'test'],
+                            choices=list(BENCHMARK_CONFIGS),
                             help='Benchmark to run')
     run_parser.add_argument('--systems', nargs='+', required=True,
                             help='Systems to run (DTW, SOA, SOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
