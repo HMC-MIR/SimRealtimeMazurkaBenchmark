@@ -9,7 +9,7 @@ numba.
 from typing import Any, Dict
 
 import corpora
-from corpora import mazurkas
+from corpora import mazurkas, vienna4x22
 
 # Each benchmark names the corpus it draws from, where its scenario/experiment/
 # eval directories live, and how its recording list is obtained: benchmarks with
@@ -43,6 +43,15 @@ BENCHMARK_CONFIGS = {
         'scenarios_dir': 'scenarios_test',
         'experiments_dir': 'experiments_test',
         'eval_dir': 'eval_test',
+    },
+    'vienna4x22': {
+        'corpus': 'vienna4x22',
+        'piece_roots': vienna4x22.PIECE_ROOTS,
+        'train_file': 'cfg/vienna4x22.pkl',
+        'pair_file': 'cfg/vienna4x22_pairs.pkl',
+        'scenarios_dir': 'scenarios_vienna4x22',
+        'experiments_dir': 'experiments_vienna4x22',
+        'eval_dir': 'eval_vienna4x22',
     },
 }
 

@@ -196,6 +196,16 @@ def generate_scenarios(outdir: str, pairs_list: List[tuple], corpus: corpora.Cor
     
     logger.info(f"Generated {valid_scenarios_count} scenarios (skipped {len(pairs_list) - valid_scenarios_count})")
 
+    if valid_scenarios_count == 0:
+        # Almost always a missing or not-yet-built corpus. Failing here beats
+        # reporting success and leaving an empty scenario directory for the
+        # experiment step to find.
+        logger.error(
+            f"No scenarios generated in {outdir}/. Check that the corpus audio and "
+            f"annotations are present; see the README for how to obtain them."
+        )
+        sys.exit(1)
+
 
 def save_cfg_files(piece_ids: List[str], pairs_list: List[Tuple[str, str]], config: Dict[str, str], logger: logging.Logger):
     """Persist enumerated piece IDs and pairs under cfg/."""

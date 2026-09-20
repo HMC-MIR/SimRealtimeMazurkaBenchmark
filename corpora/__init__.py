@@ -10,9 +10,11 @@ from typing import Optional
 
 from corpora.base import Corpus, build_dataset
 from corpora.mazurkas import MAZURKAS
+from corpora.vienna4x22 import VIENNA4X22
 
 REGISTRY = {
     MAZURKAS.name: MAZURKAS,
+    VIENNA4X22.name: VIENNA4X22,
 }
 
 __all__ = ["Corpus", "build_dataset", "REGISTRY", "get"]

@@ -38,7 +38,7 @@ each system directory.
 
 ## Dataset
 
-`benchmark.py` expects the Mazurka data at the repository root:
+`benchmark.py` expects each corpus at the repository root, in the same shape:
 
 ```
 Chopin_Mazurkas/
@@ -52,6 +52,42 @@ feature, experiment, or evaluation directories — all of them are regenerated b
 `benchmark.py`. Note in particular that scenario directories contain **absolute** symlinks
 into `Chopin_Mazurkas/`, so they must be regenerated after cloning or moving the repository.
 
+### Vienna 4x22
+
+The optional `vienna4x22` benchmark uses the [Vienna 4x22 Piano
+Corpus](https://github.com/CPJKU/vienna4x22): 22 pianists playing each of four
+excerpts, recorded on a Bösendorfer SE290 as audio and MIDI at once. It ships neither
+audio nor beat annotations, so both are produced locally:
+
+```bash
+git clone https://github.com/CPJKU/vienna4x22
+curl -O https://repo.mdw.ac.at/projects/IWK/the_vienna_4x22_piano_corpus/data/audio.zip  # 1.3 GB
+unzip audio.zip -d vienna4x22_audio
+
+python -m scripts.vienna4x22.verify_timebase --audio-dir vienna4x22_audio --match-dir vienna4x22/match
+python -m scripts.vienna4x22.prepare        --audio-dir vienna4x22_audio --match-dir vienna4x22/match
+python benchmark.py run --benchmark vienna4x22 --systems DTW SOA --jobs 8
+```
+
+Annotations are derived from the corpus's score-to-performance match files: each score
+beat is timed by the median onset of the notes aligned to it. Positions are chosen once
+per piece and shared by all 22 performances, because `eval_tools` pairs the query's and
+reference's annotations row by row. Rolled chords are excluded, since no single
+timestamp represents them — the final chord of the op. 38 Ballade spans over 5 s in
+some performances.
+
+**Run `verify_timebase` first.** The annotations are correct only if match-file times
+are audio times, and upstream's March 2024 pass to make that so does not look like it
+landed on the two Chopin pieces: all 22 performances of each start at exactly t=0, while
+the Mozart and Schubert performances start at varied, plausible times. If the check
+reports offsets, feed them back with `prepare --offsets`.
+
+Note that all 22 performances of a piece share one instrument, room and microphone
+setup. That removes the recording-condition variation that dominates the Mazurka set,
+so this benchmark isolates tempo and expressive variation and its error rates are not
+interchangeable with the Mazurka ones. Its ground truth also comes from a reproducing
+piano's MIDI capture rather than human beat tapping, a different noise floor.
+
 ## Benchmarks
 
 | benchmark | pieces | scenarios | purpose |
@@ -59,6 +95,7 @@ into `Chopin_Mazurkas/`, so they must be regenerated after cloning or moving the
 | `train_small` | 10 recordings of Op. 17 No. 4 | 45 | quick smoke test |
 | `train` | all recordings of Op. 17 No. 4 | ~1.9k | parameter tuning |
 | `test` | Op. 24 No. 2, Op. 30 No. 2, Op. 68 No. 3 | ~3.8k | reported results |
+| `vienna4x22` | 4 excerpts × 22 pianists (Vienna 4x22) | 924 | cross-corpus check |
 
 Each benchmark writes to its own set of directories (`scenarios*/`, `experiments*/`,
 `eval*/`); see `BENCHMARK_CONFIGS` in `corpora/benchmarks.py`.

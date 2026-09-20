@@ -230,3 +230,6 @@ logs/
 # Abandoned neural-network experiments
 dense_nn/
 noa_nn/
+
+# Vienna 4x22, built by scripts/vienna4x22/prepare.py (see README)
+Vienna4x22/
