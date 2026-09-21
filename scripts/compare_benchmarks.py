@@ -114,9 +114,14 @@ def main():
                 print(f"{benchmark}/{system}: no scored errors, skipping")
                 continue
             scored, total = coverage(eval_dir, system, scenarios_dir)
+            # Indexed by directory name rather than paper label: an eval
+            # directory left behind by an older naming scheme can map to the
+            # same label as a current one, and two rows sharing a name in a
+            # results table is worse than a slightly uglier index.
             row = {
                 'benchmark': benchmark,
-                'system': display_name(system),
+                'system': system,
+                'label': display_name(system),
                 'scenarios': f"{scored}/{total}" if total else str(scored),
                 'annotations': errors.size,
             }
