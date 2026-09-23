@@ -12,7 +12,7 @@ import pandas as pd
 
 from utils.oltw import online_processing
 from utils.matchmaker_baseline import run_matchmaker_alignment
-from online_alignment import run_offline_oltw, run_offline_noa
+from online_alignment import run_offline_oltw, run_offline_soa
 
 @jit(nopython=True, parallel=True)
 def cosine_dist(F1, F2):
@@ -231,7 +231,7 @@ class ExperimentRunner:
         # run SOA
         norm = self.kwargs['norm']
         monotonic = self.kwargs['monotonic']
-        wp = run_offline_noa(reference_feat, query_feat, steps = self.kwargs['steps'], weights = self.kwargs['weights'], cost_metric = self.kwargs['distance_metric'], monotonic = monotonic, normalize = norm)
+        wp = run_offline_soa(reference_feat, query_feat, steps = self.kwargs['steps'], weights = self.kwargs['weights'], cost_metric = self.kwargs['distance_metric'], monotonic = monotonic, normalize = norm)
         
         # convert to seconds
         hop_sec = self.kwargs['hop_length'] / self.kwargs['sr']
@@ -255,8 +255,8 @@ class ExperimentRunner:
         window_steps = self.kwargs['window_steps']
         DTW_weights = self.kwargs['DTW_weights']
 
-        # run SOA
-        wp = run_offline_oltw(reference_feat, query_feat, c=self.kwargs['c'], DTW_steps=DTW_steps, window_steps=window_steps, DTW_weights=DTW_weights, cost_metric=self.kwargs['distance_metric'])
+        # run OLTW
+        wp = run_offline_oltw(reference_feat, query_feat, c=self.kwargs['c'], steps=DTW_steps, window_steps=window_steps, weights=DTW_weights, cost_metric=self.kwargs['distance_metric'])
         
         # convert to seconds
         hop_sec = self.kwargs['hop_length'] / self.kwargs['sr']
