@@ -41,7 +41,7 @@
     ],
     "weights": [
       1,
-      2,
+      1,
       2
     ],
     "feat_dir": "features/chroma_stft_norm2",
@@ -68,7 +68,7 @@
     ],
     "weights": [
       1,
-      2,
+      1,
       2
     ],
     "feat_dir": "features/chroma_stft_norm2",
