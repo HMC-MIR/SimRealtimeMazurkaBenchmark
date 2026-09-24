@@ -107,33 +107,6 @@
     "distance_metric": "cosine",
     "monotonic": false
   },
-  "SOA5": {
-    "steps": [
-      [
-        1,
-        0
-      ],
-      [
-        0,
-        1
-      ],
-      [
-        1,
-        1
-      ]
-    ],
-    "weights": [
-      1,
-      1,
-      1
-    ],
-    "feat_dir": "features/chroma_stft_norm2",
-    "sr": 22050,
-    "hop_length": 512,
-    "norm": true,
-    "distance_metric": "cosine",
-    "monotonic": false
-  },
   "DTW1": {
     "steps": [
       [

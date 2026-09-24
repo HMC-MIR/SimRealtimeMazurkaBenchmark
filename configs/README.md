@@ -12,7 +12,7 @@ names.
 | `default_systems.json` | the parameters used for the reported results |
 | `oltw_global_examples.json` | OLTW-Global step-pattern sweep, settings A-F (`c: null`) |
 | `oltw_examples.json` | the same sweep for the windowed variant (`c: 500`) |
-| `weight_sweep_examples.json` | DTW/SOA step-weight sweep used during tuning; `SOA5` uses steps (1,0), (0,1), (1,1), which online-alignment 0.4.0 and later reject (SOA supports only (1,1), (1,2), (2,1)), so it needs online-alignment 0.3.0 or earlier |
+| `weight_sweep_examples.json` | DTW/SOA step-weight sweep used during tuning |
 
 If `--config` is omitted, `get_default_configs()` in `benchmark.py` supplies equivalent
 defaults, so the common case needs no config file at all:
