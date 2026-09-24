@@ -16,7 +16,7 @@
     ],
     "weights": [
       1,
-      2,
+      1,
       2
     ],
     "feat_dir": "features/chroma_stft_norm2",
@@ -167,7 +167,8 @@
     "sr": 22050,
     "hop_length": 512,
     "distance_metric": "cosine",
-    "window_size": 10
+    "window_size": 10,
+    "readout": "reduced"
   },
   "MM_ARZT": {
     "method": "arzt",
@@ -176,6 +177,7 @@
     "hop_length": 512,
     "distance_metric": "cosine",
     "window_size": 10,
-    "step_size": 3
+    "step_size": 3,
+    "readout": "reduced"
   }
 }

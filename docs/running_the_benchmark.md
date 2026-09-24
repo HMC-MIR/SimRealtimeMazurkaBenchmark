@@ -1,27 +1,20 @@
 # Running the benchmark
 
-A record of how the Vienna 4x22 results and the repaired Mazurka test results were
-produced, with the commands, the timings they actually took, and the failures worth
-knowing about before repeating this.
+How the Vienna 4x22 and Mazurka test results were produced: the commands, the
+wall-clock times they took, and the failures worth knowing about before repeating them.
 
 Everything here assumes the repository root as the working directory.
 
 ## The interpreter
 
-Use the environment's interpreter by name:
+Run everything with the benchmark environment's interpreter
+(`conda env create -f environment.yml`, then `conda activate sim-realtime-mazurka`).
+For detached jobs, name the interpreter explicitly rather than relying on an activated
+environment, which a `nohup ... &` shell does not reliably inherit:
 
 ```bash
-PY=/home/ctang/ttmp/anaconda3/envs/online-alignment-dev/bin/python
+PY=$(conda run -n sim-realtime-mazurka which python)
 ```
-
-`benchmark.py` imports `vamp` at module scope through `utils/experiments.py`, and that
-package exists only in `online-alignment-dev`. Plain `python` resolves to conda `base`
-in a fresh shell, so every command below fails at import with
-`ModuleNotFoundError: No module named 'vamp'` unless the environment is activated.
-
-This matters most for detached work. A shell started with `nohup ... &` does not inherit
-an activated conda environment reliably across a session restart, and the failure is
-instant and silent if nothing is watching the log. Naming the interpreter is the fix.
 
 ## Building the Vienna 4x22 corpus
 
@@ -75,7 +68,7 @@ $PY benchmark.py features --benchmark vienna4x22     # ~20 s
 ```
 
 The systems were then run in groups, because their requirements differ. Measured
-wall-clock for 924 scenarios each, on a 40-core machine:
+wall-clock for 924 scenarios each (on a 40-core machine; yours will differ):
 
 ```bash
 # in-process, no external dependencies
@@ -91,7 +84,7 @@ $PY benchmark.py experiment --benchmark vienna4x22 --systems OLTW --jobs 8
 #   OLTW          12m33s
 
 # MatchMaker runs out of process in its own environment
-export MATCHMAKER_PYTHON=/home/ctang/ttmp/anaconda3/envs/matchmaker/bin/python
+export MATCHMAKER_PYTHON=$(conda run -n matchmaker which python)
 $PY benchmark.py experiment --benchmark vienna4x22 --systems MM_DIXON MM_ARZT --jobs 8
 #   MM_DIXON      87m10s     by far the slowest
 #   MM_ARZT        4m57s     bounded by step_size=3, so far cheaper than MM_DIXON
@@ -151,8 +144,11 @@ whose `%CPU` is a lifetime average and will still show the last busy figure.
 On the Mazurka test set this affects 7 of 3802 scenarios, all pairing
 `Chopin_Op068No3_Cortot-1951_pid9066b-19` (164.7 s, against a median of 98 s for that
 piece, because it takes repeats the others do not) with the shortest performances. Their
-ratios are 2.035 to 2.296; every scenario below 2.0 succeeds. That recording is not listed
-in `Chopin_Mazurkas/annotations_beat/structure_exceptions.txt`, and arguably should be.
+ratios are 2.035 to 2.296; every scenario below 2.0 succeeds. DTW is therefore scored on
+3795 of the 3802 scenarios; the online systems, which have no slope limit, run on all of
+them. (Cortot's beat annotations still match the other recordings of the piece beat for
+beat, so unlike the two recordings in `corpora/mazurkas.py`'s `EXCLUDED_RECORDINGS` it
+can be scored.)
 
 No Vienna pair comes close: the worst ratio is 1.740, because the four excerpts are short
 and all 22 pianists play the same written material, with no repeat-structure divergence.
@@ -166,6 +162,5 @@ job writes into its log:
 while ! grep -q "ALL SYSTEMS DONE" "$LOG"; do sleep 30; done
 ```
 
-Do not wait with `pgrep -f <pattern>`. The pattern appears in the waiting script's own
-command line, so `pgrep` matches itself and the loop never exits. That cost about 25
-minutes of a silent no-op before it was noticed.
+Do not wait with `pgrep -f <pattern>`: the pattern appears in the waiting script's own
+command line, so `pgrep` matches itself and the loop never exits.

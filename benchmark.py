@@ -53,7 +53,6 @@ import corpora
 from corpora.benchmarks import BENCHMARK_CONFIGS, get_corpus
 import utils.constants as constants
 from utils.experiments import ExperimentRunner
-from utils.match_features import extract_match_features
 import eval_tools
 
 
@@ -287,29 +286,6 @@ def compute_chroma_stft_features(piece_ids: List[str], corpus: corpora.Corpus, l
         np.save(feat_path, chroma_stft_feat)
     
     logger.info("Chroma STFT features computed")
-
-
-def compute_match_features(piece_ids: List[str], corpus: corpora.Corpus, logger: logging.Logger):
-    """Compute and save match features for given pieces."""
-    match_dir = f"{FEAT_DIR}/match"
-    os.makedirs(match_dir, exist_ok=True)
-    
-    logger.info(f"Computing match features for {len(piece_ids)} pieces")
-    
-    for piece_id in tqdm(piece_ids, desc="Computing match features"):
-        feat_path = f"{match_dir}/{piece_id}.npy"
-        os.makedirs(os.path.dirname(feat_path), exist_ok=True)
-        
-        # Skip if already exists
-        if os.path.exists(feat_path):
-            logger.debug(f"Skipping {piece_id} - already computed")
-            continue
-        
-        audio_path = corpus.audio_path(piece_id)
-        match_feat = extract_match_features(audio_path)
-        np.save(feat_path, match_feat)
-    
-    logger.info("Match features computed")
 
 
 # ============================================================================
@@ -640,14 +616,14 @@ def main():
 Examples:
   # Run full pipeline with default settings
   python benchmark.py run --benchmark train_small --systems DTW SOA
-  
-  # Run full pipeline with custom config
-  python benchmark.py run --benchmark train_small --config configs/my_config.json
-  
+
+  # Run full pipeline with a parameter file
+  python benchmark.py run --benchmark train_small --systems SOA --config configs/default_systems.json
+
   # Run individual steps
   python benchmark.py prepare --benchmark train_small
-  python benchmark.py features --benchmark train_small --systems DTW SOA
-  python benchmark.py experiment --benchmark train_small --systems OLTW_GLOBAL --config configs/oltw_config.json
+  python benchmark.py features --benchmark train_small
+  python benchmark.py experiment --benchmark train_small --systems OLTW_GLOBAL_A OLTW_GLOBAL_B --config configs/oltw_global_examples.json
   python benchmark.py evaluate --benchmark train_small
         """
     )
@@ -673,7 +649,8 @@ Examples:
                                    choices=list(BENCHMARK_CONFIGS),
                                    help='Benchmark to run experiments on')
     experiment_parser.add_argument('--systems', nargs='+', required=True,
-                                   help='Systems to run (DTW, SOA, SOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
+                                   help='Systems to run (DTW, SOA, SOA_MONOTONIC, OLTW, OLTW_OURS, OLTW_GLOBAL, MM_DIXON, '
+                                        'MM_ARZT, MATCH, or a key from the --config file)')
     experiment_parser.add_argument('--config', type=str,
                                    help='JSON configuration file for system parameters')
     experiment_parser.add_argument('--jobs', type=int, default=1,
@@ -693,7 +670,8 @@ Examples:
                             choices=list(BENCHMARK_CONFIGS),
                             help='Benchmark to run')
     run_parser.add_argument('--systems', nargs='+', required=True,
-                            help='Systems to run (DTW, SOA, SOA_MONOTONIC, MATCH, OLTW, OLTW_GLOBAL, OLTW_OURS, or custom)')
+                            help='Systems to run (DTW, SOA, SOA_MONOTONIC, OLTW, OLTW_OURS, OLTW_GLOBAL, MM_DIXON, '
+                                        'MM_ARZT, MATCH, or a key from the --config file)')
     run_parser.add_argument('--config', type=str,
                             help='JSON configuration file for system parameters')
     run_parser.add_argument('--jobs', type=int, default=1,

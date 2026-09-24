@@ -7,7 +7,6 @@ import numpy as np
 from numba import jit, prange
 from hmc_mir.align import dtw
 from tqdm import tqdm
-import vamp
 import pandas as pd
 
 from utils.oltw import online_processing
@@ -54,16 +53,16 @@ def euclidean_dist(F1, F2):
     return C
 
 def parse_match_outfile(infile):
-            '''
-            Parses the MATCH csv output file specifying the estimated alignment.
-            
-            Inputs
-            infile: filepath to the MATCH csv output file
-            
-            Returns a 2xN array indicating the estimated alignment in seconds.
-            '''
-            d = pd.read_csv(infile, header=None)
-            return np.vstack((d.loc[:,1], d.loc[:,2]))
+    '''
+    Parses the MATCH csv output file specifying the estimated alignment.
+
+    Inputs
+    infile: filepath to the MATCH csv output file
+
+    Returns a 2xN array indicating the estimated alignment in seconds.
+    '''
+    d = pd.read_csv(infile, header=None)
+    return np.vstack((d.loc[:,1], d.loc[:,2]))
 
 def _run_scenario(task):
     """
@@ -88,7 +87,8 @@ def _run_scenario(task):
 class ExperimentRunner:
     def __init__(self, exp_type, kwargs, logger=None):
         """
-        exp_type: experiment to run. Currently accepts DTW, SOA, or MATCH
+        exp_type: system key to run, e.g. DTW, SOA, SOA_MONOTONIC, OLTW, OLTW_OURS,
+                  OLTW_GLOBAL, MM_DIXON, MM_ARZT (see the README's Systems table)
         kwargs: arguments needed to pass in for the experiment
         logger: optional logger instance
         """
@@ -107,7 +107,8 @@ class ExperimentRunner:
         
         # check if the result already exists. if so, skip
         if os.path.exists(f"{out_path}/hyp.npy"):
-            print(f"Skipping {out_path} because it already exists")
+            if self.logger:
+                self.logger.debug(f"Skipping {out_path} because it already exists")
             return
         
         # generate out_path
@@ -218,7 +219,7 @@ class ExperimentRunner:
         np.save(os.path.join(out_path, "hyp.npy"), wp_sec)
         
         
-    def run_soa(self, scenarios_dir, out_path, monotonic = False):
+    def run_soa(self, scenarios_dir, out_path):
         """
         Runs SOA experiment for the given scenario and stores results to output path.
         """

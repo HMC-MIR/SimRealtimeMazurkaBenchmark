@@ -59,7 +59,17 @@ def eval_alignment_single(hypfile, query_annot_file, ref_annot_file, logger: log
             print(f'{ref_annot_file} does not exist')
         return None
 
-    gt = getGroundTruthTimestamps(query_annot_file, ref_annot_file)
+    gt_query = read_start_times(query_annot_file)
+    gt_ref = read_start_times(ref_annot_file)
+    if len(gt_query) != len(gt_ref):
+        msg = (f'Skipping {hypfile}: {len(gt_query)} query beats against {len(gt_ref)} '
+               f'reference beats, so they cannot be paired')
+        if logger:
+            logger.warning(msg)
+        else:
+            print(msg)
+        return None
+    gt = np.stack([gt_query, gt_ref], axis=1)
     if gt.shape[0] == 0:
         if logger:
             logger.warning(f'No measures to evaluate in {hypfile}')
@@ -119,7 +129,8 @@ def eval_alignment_batch(exp_dir, scenarios_dir, out_dir, logger: logging.Logger
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
     outfile = f'{out_dir}/errs.pkl'
-    pickle.dump(d, open(outfile, 'wb'))
+    with open(outfile, 'wb') as f:
+        pickle.dump(d, f)
     
     if logger:
         logger.info(f"Evaluation complete. Success: {success_count}, Failed: {fail_count}. Results saved to {outfile}")

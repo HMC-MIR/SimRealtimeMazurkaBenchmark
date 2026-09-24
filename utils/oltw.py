@@ -35,7 +35,6 @@ def verify_oltw_installation(jar_path):
         version_output = result.stdout + result.stderr if result.stderr else result.stdout
         
         # Check if Java 21 or higher
-        import re
         version_match = re.search(r'version "(\d+)\.', version_output)
         if version_match:
             java_version = int(version_match.group(1))
@@ -124,7 +123,7 @@ def online_processing(scenario_dir, out_dir, hop_length, jar_path=None):
             raise FileNotFoundError('Could not find PerformanceMatcher.jar. Please specify jar_path.')
     
     # Verify installation
-    verify_oltw_installation(jar_path)
+    java_cmd = verify_oltw_installation(jar_path)
     
     # Set up file paths
     query_path = os.path.join(scenario_dir, 'query.wav')
@@ -133,7 +132,7 @@ def online_processing(scenario_dir, out_dir, hop_length, jar_path=None):
     
     # Run OLTW algorithm
     cmd = [
-        'java', '-jar', jar_path,
+        java_cmd, '-jar', jar_path,
         '-b', '-q', '-G', '-D', '--use-chroma-map',
         query_path, ref_path
     ]

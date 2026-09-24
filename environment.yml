@@ -15,9 +15,10 @@ dependencies:
   - plotly>=6.0
   - tqdm
   - jupyterlab
+  - ffmpeg                  # scripts/vienna4x22/prepare.py transcodes the Vienna audio
+  - openjdk>=21             # the OLTW baseline runs match/PerformanceMatcher.jar
   - pip
   - pip:
-      - kaleido>=1.0          # static image export for the plotly figures
+      - kaleido>=1.0          # static image export for the plotly figures (needs Chrome)
       - hmc_mir>=0.1.15       # offline DTW used by the DTW baseline
-      - vamp>=1.1             # python host for the match-vamp-plugin (MATCH only)
       - online-alignment @ git+https://github.com/HMC-MIR/OnlineAlignment@v0.4.1

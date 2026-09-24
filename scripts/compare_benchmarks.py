@@ -11,6 +11,9 @@ recording-condition variation, holding the aligner fixed.
 Usage:
     python -m scripts.compare_benchmarks --benchmarks test vienna4x22
     python -m scripts.compare_benchmarks --benchmarks test vienna4x22 --out results/cross_corpus.csv
+
+By default only the systems reported in the paper are included (PAPER_SYSTEMS);
+--systems selects others, and --all-systems includes every evaluated system.
 """
 
 import argparse
@@ -89,6 +92,10 @@ def warn_partial_coverage(table: pd.DataFrame) -> None:
             print(f"  {problem}")
 
 
+# The system keys behind the paper's Table 1 columns.
+PAPER_SYSTEMS = ['DTW', 'OLTW', 'MM_DIXON', 'MM_ARZT', 'OLTW_OURS', 'OLTW_GLOBAL', 'SOA', 'SOA_MONOTONIC']
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -96,6 +103,10 @@ def main():
     parser.add_argument('--tolerances', nargs='+', type=int, default=DEFAULT_TOLERANCES,
                         help='error tolerances in milliseconds')
     parser.add_argument('--out', type=Path, help='write the table as CSV')
+    parser.add_argument('--systems', nargs='+', default=PAPER_SYSTEMS,
+                        help='system keys to include (default: the systems in the paper)')
+    parser.add_argument('--all-systems', action='store_true',
+                        help='include every system with evaluation results')
     args = parser.parse_args()
 
     records = []
@@ -109,6 +120,8 @@ def main():
 
         for system_dir in sorted(p for p in eval_dir.iterdir() if (p / 'errs.pkl').is_file()):
             system = system_dir.name
+            if not args.all_systems and system not in args.systems:
+                continue
             errors = load_errors(system_dir / 'errs.pkl')
             if errors.size == 0:
                 print(f"{benchmark}/{system}: no scored errors, skipping")

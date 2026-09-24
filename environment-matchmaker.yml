@@ -8,8 +8,8 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.10
+  - python=3.12
   - numpy<2
   - pip
   - pip:
-      - pymatchmaker
+      - pymatchmaker==0.3.0      # utils/matchmaker_worker.py requires exactly this version

@@ -14,7 +14,7 @@ that knows where a benchmark's data actually lives.
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import FrozenSet, List, Optional, Sequence, Tuple
 
 
 @dataclass(frozen=True)
@@ -35,6 +35,8 @@ class Corpus:
     annot_root: str
     annot_ext: str = ".beat"
     default_piece_root: Optional[str] = None
+    # Qualified piece IDs left out of every benchmark built from this corpus.
+    excluded: FrozenSet[str] = frozenset()
 
     def qualify(self, piece_id: str) -> str:
         """Expand a possibly-bare piece ID to one relative to the corpus roots."""
@@ -94,6 +96,9 @@ def build_dataset(
             continue
 
         local_piece_ids = sorted(f"{piece_root}/{p.stem}" for p in piece_audio_dir.glob("*.wav"))
+        for piece_id in sorted(set(local_piece_ids) & corpus.excluded):
+            logger.info(f"Excluding {piece_id} (listed in {corpus.name}'s excluded recordings)")
+        local_piece_ids = [p for p in local_piece_ids if p not in corpus.excluded]
         if len(local_piece_ids) < 2:
             logger.warning(f"Found fewer than 2 recordings in {piece_audio_dir}; no pairs will be created")
 
