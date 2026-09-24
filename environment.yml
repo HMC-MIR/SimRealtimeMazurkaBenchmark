@@ -20,4 +20,4 @@ dependencies:
       - kaleido>=1.0          # static image export for the plotly figures
       - hmc_mir>=0.1.15       # offline DTW used by the DTW baseline
       - vamp>=1.1             # python host for the match-vamp-plugin (MATCH only)
-      - online-alignment @ git+https://github.com/HMC-MIR/OnlineAlignment@v0.2.1
+      - online-alignment @ git+https://github.com/HMC-MIR/OnlineAlignment@v0.4.1
